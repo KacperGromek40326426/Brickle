@@ -69,12 +69,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $prompt = post_value('prompt');
         $quizDate = post_value('quiz_date');
         $questionId = post_value('question_id');
-        $imageUpload = prepare_question_image_upload();
+        $imageUpload = prepare_question_image_uploads();
 
         if ($imageUpload['status'] === 'error') {
             flash($imageUpload['message'], 'error');
             redirect('index.php?page=admin' . ($questionId !== '' && ctype_digit($questionId) ? '&edit=' . $questionId : '') . '#schedule');
         }
+        $newImages = $imageUpload['images'] ?? [];
 
         if ($prompt === '' || strlen($prompt) > 960) {
             flash('Enter a question of up to 240 characters.', 'error');
@@ -87,6 +88,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($questionId !== '') {
+            $removalResult = question_image_removal_ids();
+            if ($removalResult['status'] === 'error') {
+                flash($removalResult['message'], 'error');
+                redirect('index.php?page=admin&edit=' . (int) $questionId . '#schedule');
+            }
+            $removeImageIds = $removalResult['ids'];
+
             $statement = $database->prepare('SELECT id FROM questions WHERE id = :id');
             $statement->execute(['id' => (int) $questionId]);
             if (!$statement->fetch()) {
@@ -94,18 +102,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 redirect('index.php?page=admin#schedule');
             }
 
-            $statement = $database->prepare(
-                'UPDATE questions SET prompt = :prompt, updated_at = :updated_at WHERE id = :id'
-            );
-            $statement->execute([
-                'prompt' => $prompt,
-                'updated_at' => date('c'),
-                'id' => (int) $questionId,
-            ]);
-            if ($imageUpload['status'] === 'image') {
-                store_question_image($database, (int) $questionId, $imageUpload['data'], $imageUpload['mime_type']);
-            } elseif (post_value('remove_image') === '1') {
-                delete_question_image($database, (int) $questionId);
+            $existingImages = load_question_images($database, (int) $questionId);
+            $existingImageIds = array_map(static fn(array $image): int => (int) $image['id'], $existingImages);
+            if (array_diff($removeImageIds, $existingImageIds)) {
+                flash('An image selected for removal does not belong to this quiz.', 'error');
+                redirect('index.php?page=admin&edit=' . (int) $questionId . '#schedule');
+            }
+
+            $remainingImages = count($existingImages) - count($removeImageIds);
+            if ($remainingImages + count($newImages) > QUESTION_IMAGE_LIMIT) {
+                flash('A quiz can have up to 5 images. Remove an image or select fewer new images.', 'error');
+                redirect('index.php?page=admin&edit=' . (int) $questionId . '#schedule');
+            }
+
+            $database->beginTransaction();
+            try {
+                $statement = $database->prepare(
+                    'UPDATE questions SET prompt = :prompt, updated_at = :updated_at WHERE id = :id'
+                );
+                $statement->execute([
+                    'prompt' => $prompt,
+                    'updated_at' => date('c'),
+                    'id' => (int) $questionId,
+                ]);
+                store_question_images($database, (int) $questionId, $newImages, $removeImageIds);
+                $database->commit();
+            } catch (DomainException $exception) {
+                if ($database->inTransaction()) {
+                    $database->rollBack();
+                }
+                flash($exception->getMessage(), 'error');
+                redirect('index.php?page=admin&edit=' . (int) $questionId . '#schedule');
+            } catch (Throwable $exception) {
+                if ($database->inTransaction()) {
+                    $database->rollBack();
+                }
+                throw $exception;
             }
             flash('Question updated. Its scheduled date has not changed.');
             redirect('index.php?page=admin&edit=' . (int) $questionId . '#schedule');
@@ -123,19 +155,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('index.php?page=admin#schedule');
         }
 
-        $statement = $database->prepare(
-            'INSERT INTO questions (quiz_date, prompt, created_at, updated_at) VALUES (:quiz_date, :prompt, :created_at, :updated_at)'
-        );
-        $now = date('c');
-        $statement->execute([
-            'quiz_date' => $quizDate,
-            'prompt' => $prompt,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
-        $newId = (int) $database->lastInsertId();
-        if ($imageUpload['status'] === 'image') {
-            store_question_image($database, $newId, $imageUpload['data'], $imageUpload['mime_type']);
+        $database->beginTransaction();
+        try {
+            $statement = $database->prepare(
+                'INSERT INTO questions (quiz_date, prompt, created_at, updated_at) VALUES (:quiz_date, :prompt, :created_at, :updated_at)'
+            );
+            $now = date('c');
+            $statement->execute([
+                'quiz_date' => $quizDate,
+                'prompt' => $prompt,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+            $newId = (int) $database->lastInsertId();
+            store_question_images($database, $newId, $newImages);
+            $database->commit();
+        } catch (DomainException $exception) {
+            if ($database->inTransaction()) {
+                $database->rollBack();
+            }
+            flash($exception->getMessage(), 'error');
+            redirect('index.php?page=admin#schedule');
+        } catch (Throwable $exception) {
+            if ($database->inTransaction()) {
+                $database->rollBack();
+            }
+            throw $exception;
         }
         flash('Question scheduled.');
         redirect('index.php?page=admin&edit=' . $newId . '#schedule');
@@ -239,11 +284,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $today = date('Y-m-d');
 $statement = $database->prepare(
     'SELECT q.id, q.quiz_date, q.prompt,
-        EXISTS(SELECT 1 FROM question_images qi WHERE qi.question_id = q.id) AS has_image
+        (SELECT COUNT(*) FROM question_image_gallery qi WHERE qi.question_id = q.id) AS image_count
      FROM questions q WHERE q.quiz_date = :quiz_date'
 );
 $statement->execute(['quiz_date' => $today]);
 $todayQuestion = $statement->fetch() ?: null;
+$todayImages = [];
+if ($todayQuestion) {
+    $todayImages = load_question_images($database, (int) $todayQuestion['id']);
+}
 $publicAnswers = [];
 if ($todayQuestion) {
     $statement = $database->prepare(
@@ -261,16 +310,19 @@ if ($isAdminPage && is_admin()) {
     if (is_string($editId) && ctype_digit($editId)) {
         $statement = $database->prepare(
             'SELECT q.id, q.quiz_date, q.prompt,
-                EXISTS(SELECT 1 FROM question_images qi WHERE qi.question_id = q.id) AS has_image
+                (SELECT COUNT(*) FROM question_image_gallery qi WHERE qi.question_id = q.id) AS image_count
              FROM questions q WHERE q.id = :id'
         );
         $statement->execute(['id' => (int) $editId]);
         $editQuestion = $statement->fetch() ?: null;
+        if ($editQuestion) {
+            $editQuestion['images'] = load_question_images($database, (int) $editQuestion['id']);
+        }
     }
 
     $rows = $database->query(
         'SELECT q.id, q.quiz_date, q.prompt,
-            EXISTS(SELECT 1 FROM question_images qi WHERE qi.question_id = q.id) AS has_image,
+            (SELECT COUNT(*) FROM question_image_gallery qi WHERE qi.question_id = q.id) AS image_count,
             a.display_name, a.answer, a.created_at AS answer_created_at
          FROM questions q
          LEFT JOIN answers a ON a.question_id = q.id
@@ -283,7 +335,7 @@ if ($isAdminPage && is_admin()) {
                 'id' => $id,
                 'quiz_date' => $row['quiz_date'],
                 'prompt' => $row['prompt'],
-                'has_image' => (bool) $row['has_image'],
+                'images' => [],
                 'answers' => [],
             ];
         }
@@ -293,6 +345,15 @@ if ($isAdminPage && is_admin()) {
                 'answer' => $row['answer'],
                 'created_at' => $row['answer_created_at'],
             ];
+        }
+    }
+    $imageRows = $database->query(
+        'SELECT question_id, id FROM question_image_gallery ORDER BY question_id, sort_order, id'
+    )->fetchAll();
+    foreach ($imageRows as $imageRow) {
+        $questionId = (int) $imageRow['question_id'];
+        if (isset($adminQuestions[$questionId])) {
+            $adminQuestions[$questionId]['images'][] = ['id' => (int) $imageRow['id']];
         }
     }
     foreach ($adminQuestions as $question) {
@@ -312,6 +373,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
     <meta name="theme-color" content="#11131b">
     <title><?= $isAdminPage ? 'Admin · ' : '' ?>Daily Question</title>
     <link rel="stylesheet" href="assets/styles.css">
+    <script src="assets/app.js" defer></script>
 </head>
 <body>
 <header class="site-header">
@@ -370,7 +432,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                 <p class="muted"><?= $editQuestion
                     ? 'This date is fixed once scheduled. Delete this quiz if you need to remove it.'
                     : 'Schedule a question for today or any upcoming day. Its date is fixed after scheduling.' ?></p>
-                <form class="stack-form" method="post" action="index.php?page=admin" enctype="multipart/form-data">
+                <form class="stack-form" method="post" action="index.php?page=admin" enctype="multipart/form-data" data-question-editor>
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="save_question">
                     <input type="hidden" name="question_id" value="<?= e($editQuestion ? (string) $editQuestion['id'] : '') ?>">
@@ -382,20 +444,38 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                         </div>
                     <?php else: ?>
                         <label for="quiz_date">Publish on</label>
-                        <input id="quiz_date" name="quiz_date" type="date" min="<?= e($today) ?>" value="<?= e($today) ?>" required>
+                        <input id="quiz_date" name="quiz_date" type="date" min="<?= e($today) ?>" value="<?= e($today) ?>" data-question-date required>
                     <?php endif; ?>
                     <label for="prompt">Your question</label>
-                    <textarea id="prompt" name="prompt" rows="4" maxlength="240" placeholder="What's something small that made you happy today?" required><?= e($editQuestion['prompt'] ?? '') ?></textarea>
-                    <label for="question_image">Question image <span class="label-optional">optional · JPEG, PNG, or WebP · up to 2 MB</span></label>
-                    <input id="question_image" name="question_image" type="file" accept="image/jpeg,image/png,image/webp">
-                    <?php if ($editQuestion && $editQuestion['has_image']): ?>
-                        <img class="question-image editor-image" src="image.php?id=<?= (int) $editQuestion['id'] ?>" alt="Current image for this quiz">
-                        <span class="muted image-help">Choose a new image above to replace this one.</span>
-                        <label class="remove-image-label">
-                            <input name="remove_image" type="checkbox" value="1">
-                            Remove the current image
-                        </label>
+                    <textarea id="prompt" name="prompt" rows="4" maxlength="240" data-question-prompt placeholder="What's something small that made you happy today?" required><?= e($editQuestion['prompt'] ?? '') ?></textarea>
+                    <label for="question_images">Question images <span class="label-optional">optional · up to 5 total · JPEG, PNG, or WebP · 2 MB each</span></label>
+                    <input id="question_images" name="question_images[]" type="file" accept="image/jpeg,image/png,image/webp" multiple data-question-images>
+                    <?php if ($editQuestion && $editQuestion['images']): ?>
+                        <div class="existing-images">
+                            <span class="image-section-label">Current images</span>
+                            <?php foreach ($editQuestion['images'] as $imageIndex => $image): ?>
+                                <div class="existing-image-item" data-existing-image data-image-url="image.php?id=<?= (int) $image['id'] ?>">
+                                    <img class="question-image editor-image" src="image.php?id=<?= (int) $image['id'] ?>" alt="Current question image <?= $imageIndex + 1 ?>">
+                                    <label class="remove-image-label">
+                                        <input name="remove_image_ids[]" type="checkbox" value="<?= (int) $image['id'] ?>" data-remove-image>
+                                        Remove image <?= $imageIndex + 1 ?>
+                                    </label>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
                     <?php endif; ?>
+                    <p class="muted image-help">Choose up to 5 images total (2 MB each). New images are added after current images; select any current images you want to remove.</p>
+                    <details class="visitor-preview" data-question-preview>
+                        <summary class="button button-secondary">Preview as a visitor</summary>
+                        <div class="preview-content">
+                            <p class="eyebrow"><span class="live-dot"></span> A LITTLE QUESTION FOR TODAY</p>
+                            <p class="hero-date" data-preview-date><?= e(date('l, F j', strtotime($editQuestion['quiz_date'] ?? $today))) ?></p>
+                            <h3 data-preview-prompt><?= nl2br(e($editQuestion['prompt'] ?? 'Your question will appear here.')) ?></h3>
+                            <div class="preview-gallery question-gallery homepage-image" data-preview-gallery></div>
+                            <p class="hero-subtitle">No accounts, no pressure. Just your answer.</p>
+                            <span class="button button-primary preview-answer-button">Add your answer ↓</span>
+                        </div>
+                    </details>
                     <div class="form-actions">
                         <button class="button button-primary" type="submit"><?= $editQuestion ? 'Save question' : 'Schedule question' ?> <span aria-hidden="true">→</span></button>
                         <?php if ($editQuestion): ?><a class="text-link" href="index.php?page=admin#schedule">Schedule another</a><?php endif; ?>
@@ -451,9 +531,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                                         <span class="schedule-status schedule-status-<?= e($questionStatus) ?>"><?= e($questionStatusLabel) ?></span>
                                     </div>
                                     <h3><?= e($question['prompt']) ?></h3>
-                                    <?php if ($question['has_image']): ?>
-                                        <img class="question-image schedule-image" src="image.php?id=<?= (int) $question['id'] ?>" alt="Image for this quiz" loading="lazy">
-                                    <?php endif; ?>
+                                    <?php render_question_gallery($question['images'], 'schedule-image-gallery', 'Question image '); ?>
                                 </div>
                                 <div class="archive-card-actions">
                                     <a class="text-link" href="index.php?page=admin&amp;edit=<?= (int) $question['id'] ?>#schedule">Edit question</a>
@@ -498,9 +576,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
             <p class="hero-date"><?= e(date('l, F j')) ?></p>
             <?php if ($todayQuestion): ?>
                 <h1><?= nl2br(e($todayQuestion['prompt'])) ?></h1>
-                <?php if ($todayQuestion['has_image']): ?>
-                    <img class="question-image homepage-image" src="image.php?id=<?= (int) $todayQuestion['id'] ?>" alt="Image for today's question">
-                <?php endif; ?>
+                <?php render_question_gallery($todayImages, 'homepage-image', 'Question image '); ?>
                 <p class="hero-subtitle">No accounts, no pressure. Just your answer.</p>
                 <a class="button button-primary hero-button" href="#answer">Add your answer <span aria-hidden="true">↓</span></a>
             <?php else: ?>

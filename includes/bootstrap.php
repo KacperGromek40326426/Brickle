@@ -89,4 +89,28 @@ $database->exec(
         updated_at TEXT NOT NULL
     )'
 );
+$database->exec(
+    'CREATE TABLE IF NOT EXISTS question_image_gallery (
+        id INTEGER PRIMARY KEY,
+        question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+        image_data BLOB NOT NULL,
+        mime_type TEXT NOT NULL,
+        sort_order INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (question_id, sort_order)
+    )'
+);
+$database->exec(
+    'INSERT OR IGNORE INTO question_image_gallery (question_id, image_data, mime_type, sort_order, created_at)
+     SELECT qi.question_id, qi.image_data, qi.mime_type, 0, qi.updated_at
+     FROM question_images qi
+     WHERE NOT EXISTS (
+        SELECT 1 FROM question_image_gallery qig WHERE qig.question_id = qi.question_id
+     )'
+);
+$database->exec(
+    'DELETE FROM question_images
+     WHERE question_id IN (SELECT DISTINCT question_id FROM question_image_gallery)'
+);
 $database->exec('CREATE INDEX IF NOT EXISTS answers_question_id_idx ON answers(question_id, created_at)');
+$database->exec('CREATE INDEX IF NOT EXISTS question_image_gallery_question_idx ON question_image_gallery(question_id, sort_order)');

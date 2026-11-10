@@ -11,12 +11,12 @@ if (!is_string($questionId) || !ctype_digit($questionId) || (int) $questionId < 
 }
 
 $statement = $database->prepare(
-    'SELECT qi.image_data, qi.mime_type, q.quiz_date
-     FROM question_images qi
-     JOIN questions q ON q.id = qi.question_id
-     WHERE qi.question_id = :question_id'
+    'SELECT qig.image_data, qig.mime_type, q.quiz_date
+     FROM question_image_gallery qig
+     JOIN questions q ON q.id = qig.question_id
+     WHERE qig.id = :image_id'
 );
-$statement->execute(['question_id' => (int) $questionId]);
+$statement->execute(['image_id' => (int) $questionId]);
 $image = $statement->fetch();
 if (
     !$image

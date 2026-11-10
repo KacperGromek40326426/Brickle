@@ -77,9 +77,10 @@ environment, run `php -S 127.0.0.1:8000` from the project folder, and open
   included Apache rules also deny web access to the project `storage/` and
   `includes/` folders; verify that your host honors `.htaccess`.
 - Configure the host to run a supported PHP version and enable `pdo_sqlite`.
-  Enable GD with WebP support for image uploads. Restrict write access to the
-  database directory to the PHP account, and arrange regular backups of the
-  SQLite database.
+  Enable GD with WebP support and set PHP upload limits to at least
+  `upload_max_filesize=2M`, `post_max_size=12M`, and `max_file_uploads=5` for
+  image uploads. Restrict write access to the database directory to the PHP
+  account, and arrange regular backups of the SQLite database.
 - Disable PHP error display in production and enable server-side error logging.
   Keep the database and session files out of public backups and web-accessible
   directories.
@@ -90,9 +91,12 @@ environment, run `php -S 127.0.0.1:8000` from the project folder, and open
 - The public form has CSRF protection, output escaping, input limits, and a
   short per-session submission cooldown. These reduce common risks but are
   not a substitute for host-level backups, HTTPS, and keeping PHP current.
-- Admin question images accept JPEG, PNG, or WebP up to 2 MB. Images are
-  decoded and re-encoded as WebP before being saved with the quiz in SQLite.
-  Future and past quiz images are only served to the signed-in administrator.
+- Admins can add up to five JPEG, PNG, or WebP images per question (2 MB each).
+  Images are decoded and re-encoded as WebP before being saved with the quiz in
+  SQLite. Visitors can slide through today's images. Future and past quiz
+  images are only served to the signed-in administrator.
+- The admin editor includes a live visitor-perspective preview of the question
+  text, scheduled date, and selected images before saving.
 
 ## Configuration
 
