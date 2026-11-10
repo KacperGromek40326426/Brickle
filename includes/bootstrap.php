@@ -81,4 +81,12 @@ $database->exec(
         created_at TEXT NOT NULL
     )'
 );
+$database->exec(
+    'CREATE TABLE IF NOT EXISTS question_images (
+        question_id INTEGER PRIMARY KEY REFERENCES questions(id) ON DELETE CASCADE,
+        image_data BLOB NOT NULL,
+        mime_type TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )'
+);
 $database->exec('CREATE INDEX IF NOT EXISTS answers_question_id_idx ON answers(question_id, created_at)');

@@ -10,7 +10,7 @@ its answers.
 ## Requirements
 
 - PHP 8.1 or later
-- PDO SQLite (`pdo_sqlite`) enabled
+- PDO SQLite (`pdo_sqlite`) and GD with WebP support enabled
 - A web host with PHP support; no Node.js, build step, or paid database required
 
 ## Local setup
@@ -77,8 +77,9 @@ environment, run `php -S 127.0.0.1:8000` from the project folder, and open
   included Apache rules also deny web access to the project `storage/` and
   `includes/` folders; verify that your host honors `.htaccess`.
 - Configure the host to run a supported PHP version and enable `pdo_sqlite`.
-  Restrict write access to the database directory to the PHP account, and
-  arrange regular backups of the SQLite database.
+  Enable GD with WebP support for image uploads. Restrict write access to the
+  database directory to the PHP account, and arrange regular backups of the
+  SQLite database.
 - Disable PHP error display in production and enable server-side error logging.
   Keep the database and session files out of public backups and web-accessible
   directories.
@@ -89,6 +90,9 @@ environment, run `php -S 127.0.0.1:8000` from the project folder, and open
 - The public form has CSRF protection, output escaping, input limits, and a
   short per-session submission cooldown. These reduce common risks but are
   not a substitute for host-level backups, HTTPS, and keeping PHP current.
+- Admin question images accept JPEG, PNG, or WebP up to 2 MB. Images are
+  decoded and re-encoded as WebP before being saved with the quiz in SQLite.
+  Future and past quiz images are only served to the signed-in administrator.
 
 ## Configuration
 

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/includes/bootstrap.php';
 require __DIR__ . '/includes/functions.php';
+require __DIR__ . '/includes/images.php';
 
 $page = $_GET['page'] ?? 'home';
 $isAdminPage = $page === 'admin';
@@ -68,6 +69,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $prompt = post_value('prompt');
         $quizDate = post_value('quiz_date');
         $questionId = post_value('question_id');
+        $imageUpload = prepare_question_image_upload();
+
+        if ($imageUpload['status'] === 'error') {
+            flash($imageUpload['message'], 'error');
+            redirect('index.php?page=admin' . ($questionId !== '' && ctype_digit($questionId) ? '&edit=' . $questionId : '') . '#schedule');
+        }
 
         if ($prompt === '' || strlen($prompt) > 960) {
             flash('Enter a question of up to 240 characters.', 'error');
@@ -95,6 +102,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'updated_at' => date('c'),
                 'id' => (int) $questionId,
             ]);
+            if ($imageUpload['status'] === 'image') {
+                store_question_image($database, (int) $questionId, $imageUpload['data'], $imageUpload['mime_type']);
+            } elseif (post_value('remove_image') === '1') {
+                delete_question_image($database, (int) $questionId);
+            }
             flash('Question updated. Its scheduled date has not changed.');
             redirect('index.php?page=admin&edit=' . (int) $questionId . '#schedule');
         }
@@ -122,6 +134,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'updated_at' => $now,
         ]);
         $newId = (int) $database->lastInsertId();
+        if ($imageUpload['status'] === 'image') {
+            store_question_image($database, $newId, $imageUpload['data'], $imageUpload['mime_type']);
+        }
         flash('Question scheduled.');
         redirect('index.php?page=admin&edit=' . $newId . '#schedule');
     }
@@ -222,7 +237,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $today = date('Y-m-d');
-$statement = $database->prepare('SELECT id, quiz_date, prompt FROM questions WHERE quiz_date = :quiz_date');
+$statement = $database->prepare(
+    'SELECT q.id, q.quiz_date, q.prompt,
+        EXISTS(SELECT 1 FROM question_images qi WHERE qi.question_id = q.id) AS has_image
+     FROM questions q WHERE q.quiz_date = :quiz_date'
+);
 $statement->execute(['quiz_date' => $today]);
 $todayQuestion = $statement->fetch() ?: null;
 $publicAnswers = [];
@@ -240,13 +259,19 @@ $upcomingQuizCount = 0;
 if ($isAdminPage && is_admin()) {
     $editId = $_GET['edit'] ?? '';
     if (is_string($editId) && ctype_digit($editId)) {
-        $statement = $database->prepare('SELECT id, quiz_date, prompt FROM questions WHERE id = :id');
+        $statement = $database->prepare(
+            'SELECT q.id, q.quiz_date, q.prompt,
+                EXISTS(SELECT 1 FROM question_images qi WHERE qi.question_id = q.id) AS has_image
+             FROM questions q WHERE q.id = :id'
+        );
         $statement->execute(['id' => (int) $editId]);
         $editQuestion = $statement->fetch() ?: null;
     }
 
     $rows = $database->query(
-        'SELECT q.id, q.quiz_date, q.prompt, a.display_name, a.answer, a.created_at AS answer_created_at
+        'SELECT q.id, q.quiz_date, q.prompt,
+            EXISTS(SELECT 1 FROM question_images qi WHERE qi.question_id = q.id) AS has_image,
+            a.display_name, a.answer, a.created_at AS answer_created_at
          FROM questions q
          LEFT JOIN answers a ON a.question_id = q.id
          ORDER BY q.quiz_date DESC, a.created_at ASC, a.id ASC'
@@ -258,6 +283,7 @@ if ($isAdminPage && is_admin()) {
                 'id' => $id,
                 'quiz_date' => $row['quiz_date'],
                 'prompt' => $row['prompt'],
+                'has_image' => (bool) $row['has_image'],
                 'answers' => [],
             ];
         }
@@ -344,7 +370,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                 <p class="muted"><?= $editQuestion
                     ? 'This date is fixed once scheduled. Delete this quiz if you need to remove it.'
                     : 'Schedule a question for today or any upcoming day. Its date is fixed after scheduling.' ?></p>
-                <form class="stack-form" method="post" action="index.php?page=admin">
+                <form class="stack-form" method="post" action="index.php?page=admin" enctype="multipart/form-data">
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="save_question">
                     <input type="hidden" name="question_id" value="<?= e($editQuestion ? (string) $editQuestion['id'] : '') ?>">
@@ -360,6 +386,16 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                     <?php endif; ?>
                     <label for="prompt">Your question</label>
                     <textarea id="prompt" name="prompt" rows="4" maxlength="240" placeholder="What's something small that made you happy today?" required><?= e($editQuestion['prompt'] ?? '') ?></textarea>
+                    <label for="question_image">Question image <span class="label-optional">optional · JPEG, PNG, or WebP · up to 2 MB</span></label>
+                    <input id="question_image" name="question_image" type="file" accept="image/jpeg,image/png,image/webp">
+                    <?php if ($editQuestion && $editQuestion['has_image']): ?>
+                        <img class="question-image editor-image" src="image.php?id=<?= (int) $editQuestion['id'] ?>" alt="Current image for this quiz">
+                        <span class="muted image-help">Choose a new image above to replace this one.</span>
+                        <label class="remove-image-label">
+                            <input name="remove_image" type="checkbox" value="1">
+                            Remove the current image
+                        </label>
+                    <?php endif; ?>
                     <div class="form-actions">
                         <button class="button button-primary" type="submit"><?= $editQuestion ? 'Save question' : 'Schedule question' ?> <span aria-hidden="true">→</span></button>
                         <?php if ($editQuestion): ?><a class="text-link" href="index.php?page=admin#schedule">Schedule another</a><?php endif; ?>
@@ -415,6 +451,9 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                                         <span class="schedule-status schedule-status-<?= e($questionStatus) ?>"><?= e($questionStatusLabel) ?></span>
                                     </div>
                                     <h3><?= e($question['prompt']) ?></h3>
+                                    <?php if ($question['has_image']): ?>
+                                        <img class="question-image schedule-image" src="image.php?id=<?= (int) $question['id'] ?>" alt="Image for this quiz" loading="lazy">
+                                    <?php endif; ?>
                                 </div>
                                 <div class="archive-card-actions">
                                     <a class="text-link" href="index.php?page=admin&amp;edit=<?= (int) $question['id'] ?>#schedule">Edit question</a>
@@ -459,6 +498,9 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
             <p class="hero-date"><?= e(date('l, F j')) ?></p>
             <?php if ($todayQuestion): ?>
                 <h1><?= nl2br(e($todayQuestion['prompt'])) ?></h1>
+                <?php if ($todayQuestion['has_image']): ?>
+                    <img class="question-image homepage-image" src="image.php?id=<?= (int) $todayQuestion['id'] ?>" alt="Image for today's question">
+                <?php endif; ?>
                 <p class="hero-subtitle">No accounts, no pressure. Just your answer.</p>
                 <a class="button button-primary hero-button" href="#answer">Add your answer <span aria-hidden="true">↓</span></a>
             <?php else: ?>

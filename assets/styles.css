@@ -422,6 +422,22 @@ p {
     transition: border-color .18s ease, box-shadow .18s ease;
 }
 
+.stack-form input[type="file"] {
+    min-height: 48px;
+    padding: 8px;
+    color: var(--muted);
+}
+
+.stack-form input[type="file"]::file-selector-button {
+    margin-right: 10px;
+    padding: 7px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel-soft);
+    color: var(--text);
+    cursor: pointer;
+}
+
 .stack-form textarea {
     min-height: 112px;
     resize: vertical;
@@ -448,6 +464,51 @@ p {
     color: #7e808e;
     font-size: 11px;
     font-weight: 400;
+}
+
+.remove-image-label {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    color: var(--muted) !important;
+    font-weight: 450 !important;
+}
+
+.remove-image-label input[type="checkbox"] {
+    width: 16px;
+    min-height: 16px;
+    margin: 0;
+    accent-color: var(--accent);
+}
+
+.question-image {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #13151e;
+    object-fit: cover;
+}
+
+.homepage-image {
+    max-height: 420px;
+    margin-top: 25px;
+}
+
+.editor-image {
+    max-height: 240px;
+    margin-top: 3px;
+}
+
+.image-help {
+    margin-top: -6px;
+    font-size: 11px;
+}
+
+.schedule-image {
+    max-height: 240px;
+    margin-top: 13px;
 }
 
 .notice {
