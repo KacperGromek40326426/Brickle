@@ -62,8 +62,31 @@ This image contains only the runtime PHP files and serves on
 HTTP to HTTPS. Do not expose the container directly to the public internet over
 plain HTTP. Configure the web server so PHP's `REMOTE_ADDR` is the actual
 client address, or a trusted-proxy-aware address; do not trust a
-user-supplied forwarding header. The named `quiz_data` volume persists the
-database and rate-limiting secret. Back up that volume securely.
+user-supplied forwarding header. The image disables PHP error display and sends
+error logs to the container's standard error output. Check your host's container
+logging and rotation policy, and restrict access to those logs.
+
+The named `production_quiz_data` volume persists the database and rate-limiting
+secret. Create a private backup directory on the host, outside the web root,
+then create a consistent, integrity-checked SQLite snapshot with:
+
+```sh
+export BRICKLE_BACKUP_DIR=/srv/backups/brickle
+sh docker/backup.sh
+```
+
+The script requires the production Compose service to be running and writes
+timestamped backups with owner-only permissions. Schedule it daily with the
+host's cron (adjust the repository path) or task scheduler:
+
+```cron
+0 3 * * * BRICKLE_BACKUP_DIR=/srv/backups/brickle /bin/sh /path/to/Brickle/docker/backup.sh
+```
+
+Monitor failures, and copy encrypted backups to storage outside the server.
+Periodically test restoring a backup to a separate test database before
+depending on it. Keep an appropriate retention policy; never put backups in
+the public document root or commit them to this repository.
 
 In the admin panel, schedule brickles for today or a future date. The daily
 lineup shows upcoming, today's, and past brickles; edit one to change its
@@ -104,8 +127,10 @@ environment, run `php -S 127.0.0.1:8000` from the project folder, and open
   Enable GD with WebP support and set PHP upload limits to at least
   `upload_max_filesize=2M`, `post_max_size=12M`, and `max_file_uploads=5` for
   image uploads. Restrict write access to the database directory to the PHP
-  account, and arrange regular backups of the SQLite database.
-- Disable PHP error display in production and enable server-side error logging.
+  account, and schedule and verify regular backups using the procedure above.
+- The production Docker image disables PHP error display, enables error
+  logging, and directs errors to container standard error. For non-Docker hosts,
+  disable PHP error display and enable server-side error logging explicitly.
   Keep the database and session files out of public backups and web-accessible
   directories.
 - Set a production timezone explicitly. The application stores brickle dates and
