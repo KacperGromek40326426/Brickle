@@ -3,7 +3,9 @@
 A lightweight daily quiz website for a small group of friends. Anyone can read
 the current day's question and answers without an account. Visitors can answer
 with an optional display name; the administrator can publish questions and
-review all responses from a private admin area.
+review all responses from a private admin area. Questions can be scheduled in
+advance; their dates are fixed once created, and deleting a quiz also deletes
+its answers.
 
 ## Requirements
 
@@ -38,6 +40,11 @@ the `quiz_data` Docker volume, so starting the server again with
 `docker compose up -d` keeps your questions and answers. To change the daily
 cutoff timezone, create a `.env` file next to `docker-compose.yml` with, for
 example, `APP_TIMEZONE=Europe/London`.
+
+In the admin panel, schedule quizzes for today or a future date. The daily
+lineup shows upcoming, today's, and past quizzes; edit a quiz to change only
+its question text. Dates cannot be changed after scheduling. Use **Delete**,
+then confirm, to permanently remove a quiz and all of its answers.
 
 ### Run with a local PHP installation
 

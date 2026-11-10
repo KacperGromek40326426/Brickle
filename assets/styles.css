@@ -535,6 +535,30 @@ p {
     margin-bottom: 20px;
 }
 
+.fixed-date {
+    display: grid;
+    gap: 3px;
+    padding: 12px 14px;
+    border: 1px solid rgb(201 184 255 / 20%);
+    border-radius: 9px;
+    background: rgb(201 184 255 / 5%);
+}
+
+.fixed-date-label {
+    color: var(--lavender);
+    font-size: 9px;
+    font-weight: 750;
+    letter-spacing: .12em;
+}
+
+.fixed-date strong {
+    font-size: 13px;
+}
+
+.fixed-date .muted {
+    font-size: 11px;
+}
+
 .form-actions {
     display: flex;
     align-items: center;
@@ -552,6 +576,13 @@ p {
 
 .text-link:hover {
     color: #e0d6ff;
+}
+
+.schedule-counts {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 7px;
 }
 
 .archive-section {
@@ -575,9 +606,39 @@ p {
 }
 
 .archive-card-heading .eyebrow {
-    margin-bottom: 6px;
+    margin: 0;
     color: var(--lavender);
     letter-spacing: .08em;
+}
+
+.schedule-date {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 9px;
+    margin-bottom: 6px;
+}
+
+.schedule-status {
+    padding: 2px 8px;
+    border: 1px solid var(--line);
+    border-radius: 99px;
+    color: var(--muted);
+    font-size: 9px;
+    font-weight: 650;
+    line-height: 1.6;
+}
+
+.schedule-status-upcoming {
+    border-color: rgb(201 184 255 / 24%);
+    background: rgb(201 184 255 / 7%);
+    color: var(--lavender);
+}
+
+.schedule-status-today {
+    border-color: rgb(196 242 119 / 23%);
+    background: rgb(196 242 119 / 7%);
+    color: var(--accent);
 }
 
 .archive-card-heading h3 {
@@ -588,9 +649,66 @@ p {
     line-height: 1.5;
 }
 
-.archive-card-heading > .text-link {
+.archive-card-actions {
+    display: flex;
     flex: 0 0 auto;
-    margin-top: 2px;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.button-danger {
+    min-height: 34px;
+    padding: 0 11px;
+    border-color: rgb(255 170 165 / 22%);
+    background: rgb(255 170 165 / 5%);
+    color: var(--danger);
+    font-size: 11px;
+}
+
+.button-danger:hover {
+    border-color: rgb(255 170 165 / 45%);
+    background: rgb(255 170 165 / 11%);
+}
+
+.delete-control {
+    position: relative;
+}
+
+.delete-control > summary {
+    display: inline-flex;
+    align-items: center;
+    list-style: none;
+    cursor: pointer;
+}
+
+.delete-control > summary::-webkit-details-marker {
+    display: none;
+}
+
+.delete-confirm {
+    position: absolute;
+    z-index: 2;
+    top: calc(100% + 8px);
+    right: 0;
+    width: min(290px, calc(100vw - 56px));
+    padding: 14px;
+    border: 1px solid rgb(255 170 165 / 25%);
+    border-radius: 12px;
+    background: #20212b;
+    box-shadow: 0 14px 36px rgb(0 0 0 / 30%);
+}
+
+.delete-confirm p {
+    margin: 0 0 12px;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.delete-confirm .button {
+    width: 100%;
 }
 
 .answer-count {
@@ -676,6 +794,15 @@ p {
 
     .date-pill {
         margin-top: 8px;
+    }
+
+    .archive-card-heading {
+        flex-direction: column;
+    }
+
+    .archive-card-actions {
+        width: 100%;
+        justify-content: flex-start;
     }
 
     .login-panel {

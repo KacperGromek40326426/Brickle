@@ -51,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         redirect('index.php?page=admin');
     }
 
-    if (!is_admin()) {
+    if (!is_admin() && $action !== 'submit_answer') {
         http_response_code(403);
         exit('Please sign in to continue.');
     }
@@ -69,14 +69,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $quizDate = post_value('quiz_date');
         $questionId = post_value('question_id');
 
-        if ($prompt === '' || strlen($prompt) > 960 || !valid_quiz_date($quizDate)) {
-            flash('Enter a question (up to 240 characters) and a valid quiz date.', 'error');
-            redirect('index.php?page=admin');
+        if ($prompt === '' || strlen($prompt) > 960) {
+            flash('Enter a question of up to 240 characters.', 'error');
+            redirect('index.php?page=admin#schedule');
         }
 
         if ($questionId !== '' && !ctype_digit($questionId)) {
             flash('That question could not be found.', 'error');
-            redirect('index.php?page=admin');
+            redirect('index.php?page=admin#schedule');
         }
 
         if ($questionId !== '') {
@@ -84,45 +84,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $statement->execute(['id' => (int) $questionId]);
             if (!$statement->fetch()) {
                 flash('That question could not be found.', 'error');
-                redirect('index.php?page=admin');
+                redirect('index.php?page=admin#schedule');
             }
 
-            $statement = $database->prepare(
-                'SELECT id FROM questions WHERE quiz_date = :quiz_date AND id != :id'
-            );
-            $statement->execute(['quiz_date' => $quizDate, 'id' => (int) $questionId]);
-            if ($statement->fetch()) {
-                flash('There is already a question for that date. Edit it instead.', 'error');
-                redirect('index.php?page=admin');
-            }
-
-            $statement = $database->prepare(
-                'UPDATE questions SET quiz_date = :quiz_date, prompt = :prompt, updated_at = :updated_at WHERE id = :id'
-            );
-            $statement->execute([
-                'quiz_date' => $quizDate,
-                'prompt' => $prompt,
-                'updated_at' => date('c'),
-                'id' => (int) $questionId,
-            ]);
-            flash('Question updated.');
-            redirect('index.php?page=admin&edit=' . (int) $questionId);
-        }
-
-        $statement = $database->prepare('SELECT id FROM questions WHERE quiz_date = :quiz_date');
-        $statement->execute(['quiz_date' => $quizDate]);
-        $existing = $statement->fetch();
-        if ($existing) {
             $statement = $database->prepare(
                 'UPDATE questions SET prompt = :prompt, updated_at = :updated_at WHERE id = :id'
             );
             $statement->execute([
                 'prompt' => $prompt,
                 'updated_at' => date('c'),
-                'id' => (int) $existing['id'],
+                'id' => (int) $questionId,
             ]);
-            flash('Question updated.');
-            redirect('index.php?page=admin&edit=' . (int) $existing['id']);
+            flash('Question updated. Its scheduled date has not changed.');
+            redirect('index.php?page=admin&edit=' . (int) $questionId . '#schedule');
+        }
+
+        if (!valid_quiz_date($quizDate) || $quizDate < date('Y-m-d')) {
+            flash('Choose today or a future date for a new quiz.', 'error');
+            redirect('index.php?page=admin#schedule');
+        }
+
+        $statement = $database->prepare('SELECT id FROM questions WHERE quiz_date = :quiz_date');
+        $statement->execute(['quiz_date' => $quizDate]);
+        if ($statement->fetch()) {
+            flash('A quiz is already scheduled for that date. Edit or delete it from the schedule.', 'error');
+            redirect('index.php?page=admin#schedule');
         }
 
         $statement = $database->prepare(
@@ -136,8 +122,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'updated_at' => $now,
         ]);
         $newId = (int) $database->lastInsertId();
-        flash('Question published.');
-        redirect('index.php?page=admin&edit=' . $newId);
+        flash('Question scheduled.');
+        redirect('index.php?page=admin&edit=' . $newId . '#schedule');
+    }
+
+    if ($action === 'delete_question') {
+        $questionId = post_value('question_id');
+        if (!ctype_digit($questionId)) {
+            flash('That quiz could not be found.', 'error');
+            redirect('index.php?page=admin#schedule');
+        }
+
+        $statement = $database->prepare('DELETE FROM questions WHERE id = :id');
+        $statement->execute(['id' => (int) $questionId]);
+        if ($statement->rowCount() !== 1) {
+            flash('That quiz could not be found. It may have already been deleted.', 'error');
+            redirect('index.php?page=admin#schedule');
+        }
+
+        flash('The quiz and all of its answers have been deleted.');
+        redirect('index.php?page=admin#schedule');
     }
 
     if ($action === 'change_password') {
@@ -232,6 +236,7 @@ if ($todayQuestion) {
 
 $editQuestion = null;
 $adminQuestions = [];
+$upcomingQuizCount = 0;
 if ($isAdminPage && is_admin()) {
     $editId = $_GET['edit'] ?? '';
     if (is_string($editId) && ctype_digit($editId)) {
@@ -262,6 +267,11 @@ if ($isAdminPage && is_admin()) {
                 'answer' => $row['answer'],
                 'created_at' => $row['answer_created_at'],
             ];
+        }
+    }
+    foreach ($adminQuestions as $question) {
+        if ($question['quiz_date'] > $today) {
+            $upcomingQuizCount++;
         }
     }
 }
@@ -329,20 +339,30 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
 
         <section class="admin-grid">
             <div class="panel editor-panel">
-                <p class="eyebrow"><?= $editQuestion ? 'EDIT QUESTION' : 'NEW QUESTION' ?></p>
-                <h2><?= $editQuestion ? 'Make it a good one.' : 'What are we asking?' ?></h2>
-                <p class="muted">One question per day. Visitors can answer without signing in.</p>
+                <p class="eyebrow"><?= $editQuestion ? 'EDIT SCHEDULED QUESTION' : 'PLAN A DAILY QUIZ' ?></p>
+                <h2><?= $editQuestion ? 'Polish the question.' : 'What are we asking?' ?></h2>
+                <p class="muted"><?= $editQuestion
+                    ? 'This date is fixed once scheduled. Delete this quiz if you need to remove it.'
+                    : 'Schedule a question for today or any upcoming day. Its date is fixed after scheduling.' ?></p>
                 <form class="stack-form" method="post" action="index.php?page=admin">
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="save_question">
                     <input type="hidden" name="question_id" value="<?= e($editQuestion ? (string) $editQuestion['id'] : '') ?>">
-                    <label for="quiz_date">Quiz date</label>
-                    <input id="quiz_date" name="quiz_date" type="date" value="<?= e($editQuestion['quiz_date'] ?? $today) ?>" required>
+                    <?php if ($editQuestion): ?>
+                        <div class="fixed-date">
+                            <span class="fixed-date-label">SCHEDULED FOR</span>
+                            <strong><?= e(date('l, F j, Y', strtotime($editQuestion['quiz_date']))) ?></strong>
+                            <span class="muted">Dates cannot be changed after scheduling.</span>
+                        </div>
+                    <?php else: ?>
+                        <label for="quiz_date">Publish on</label>
+                        <input id="quiz_date" name="quiz_date" type="date" min="<?= e($today) ?>" value="<?= e($today) ?>" required>
+                    <?php endif; ?>
                     <label for="prompt">Your question</label>
                     <textarea id="prompt" name="prompt" rows="4" maxlength="240" placeholder="What's something small that made you happy today?" required><?= e($editQuestion['prompt'] ?? '') ?></textarea>
                     <div class="form-actions">
-                        <button class="button button-primary" type="submit"><?= $editQuestion ? 'Save changes' : 'Publish question' ?> <span aria-hidden="true">→</span></button>
-                        <?php if ($editQuestion): ?><a class="text-link" href="index.php?page=admin">Write a new one</a><?php endif; ?>
+                        <button class="button button-primary" type="submit"><?= $editQuestion ? 'Save question' : 'Schedule question' ?> <span aria-hidden="true">→</span></button>
+                        <?php if ($editQuestion): ?><a class="text-link" href="index.php?page=admin#schedule">Schedule another</a><?php endif; ?>
                     </div>
                 </form>
             </div>
@@ -365,26 +385,52 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
             </section>
         </section>
 
-        <section class="archive-section">
+        <section class="archive-section" id="schedule">
             <div class="section-heading">
                 <div>
-                    <p class="eyebrow">THE ARCHIVE</p>
-                    <h2>Questions &amp; answers</h2>
+                    <p class="eyebrow">YOUR DAILY LINEUP</p>
+                    <h2>Schedule &amp; answers</h2>
                 </div>
-                <span class="count-pill"><?= count($adminQuestions) ?> <?= count($adminQuestions) === 1 ? 'quiz' : 'quizzes' ?></span>
+                <div class="schedule-counts">
+                    <span class="count-pill"><?= $upcomingQuizCount ?> upcoming</span>
+                    <span class="count-pill"><?= count($adminQuestions) ?> total</span>
+                </div>
             </div>
             <?php if (!$adminQuestions): ?>
-                <div class="empty-state panel"><p>Your first question is waiting to be written.</p></div>
+                <div class="empty-state panel"><p>Your schedule is clear. Add a question for today or a future day.</p></div>
             <?php else: ?>
                 <div class="archive-list">
                     <?php foreach ($adminQuestions as $question): ?>
+                        <?php
+                        $questionStatus = $question['quiz_date'] > $today
+                            ? 'upcoming'
+                            : ($question['quiz_date'] === $today ? 'today' : 'past');
+                        $questionStatusLabel = ucfirst($questionStatus);
+                        ?>
                         <article class="panel archive-card">
                             <div class="archive-card-heading">
                                 <div>
-                                    <p class="eyebrow"><?= e(date('F j, Y', strtotime($question['quiz_date']))) ?></p>
+                                    <div class="schedule-date">
+                                        <p class="eyebrow"><?= e(date('l, F j, Y', strtotime($question['quiz_date']))) ?></p>
+                                        <span class="schedule-status schedule-status-<?= e($questionStatus) ?>"><?= e($questionStatusLabel) ?></span>
+                                    </div>
                                     <h3><?= e($question['prompt']) ?></h3>
                                 </div>
-                                <a class="text-link" href="index.php?page=admin&amp;edit=<?= (int) $question['id'] ?>">Edit <span aria-hidden="true">↗</span></a>
+                                <div class="archive-card-actions">
+                                    <a class="text-link" href="index.php?page=admin&amp;edit=<?= (int) $question['id'] ?>#schedule">Edit question</a>
+                                    <details class="delete-control">
+                                        <summary class="button button-danger">Delete</summary>
+                                        <div class="delete-confirm">
+                                            <p>This permanently deletes this quiz and all <?= count($question['answers']) ?> of its answers.</p>
+                                            <form method="post" action="index.php?page=admin#schedule">
+                                                <?= csrf_field() ?>
+                                                <input type="hidden" name="action" value="delete_question">
+                                                <input type="hidden" name="question_id" value="<?= (int) $question['id'] ?>">
+                                                <button class="button button-danger" type="submit">Delete quiz and answers</button>
+                                            </form>
+                                        </div>
+                                    </details>
+                                </div>
                             </div>
                             <?php if (!$question['answers']): ?>
                                 <p class="muted answer-empty">No answers yet.</p>
