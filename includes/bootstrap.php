@@ -73,13 +73,32 @@ $database->exec(
     )'
 );
 $database->exec(
+    'CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        password_hash TEXT NOT NULL,
+        avatar_data BLOB,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )'
+);
+$database->exec(
     'CREATE TABLE IF NOT EXISTS answers (
         id INTEGER PRIMARY KEY,
         question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
         display_name TEXT,
         answer TEXT NOT NULL,
         created_at TEXT NOT NULL
     )'
+);
+$answerColumns = $database->query('PRAGMA table_info(answers)')->fetchAll();
+if (!in_array('user_id', array_column($answerColumns, 'name'), true)) {
+    $database->exec('ALTER TABLE answers ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL');
+}
+$database->exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS answers_user_question_unique_idx
+     ON answers(user_id, question_id) WHERE user_id IS NOT NULL'
 );
 $database->exec(
     'CREATE TABLE IF NOT EXISTS question_images (

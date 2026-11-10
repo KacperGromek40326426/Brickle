@@ -5,7 +5,10 @@ prompt is a brickle. Anyone can read today's brickle and its answers without
 an account, or browse the five most recent past brickles on **Brickles of the
 Yesterdays**. Visitors can answer with an optional display name; the
 administrator can schedule brickles and review all responses from a private
-admin area.
+admin area. Visitors may also register a profile with a username and optional
+picture; registered answers link to a public timeline and can build a streak.
+Signing in is optional, and signed-out visitors can continue to answer
+anonymously or with a display name.
 
 ## Requirements
 
@@ -111,6 +114,14 @@ environment, run `php -S 127.0.0.1:8000` from the project folder, and open
   personal information. The app stores keyed hashes of client IP addresses,
   not raw addresses, for rate limiting; old rate-limit records are removed
   after 24 hours.
+- User accounts do not require or collect email addresses. Passwords are
+  stored as password hashes; users can change their password while signed in,
+  but there is no password-reset or account-deletion flow. Usernames, uploaded
+  profile pictures, registered answers, and public timelines are visible to
+  everyone, including the administrator. Registered users can answer each
+  brickle once. A streak counts consecutive posted brickles answered and
+  resets when a posted brickle is skipped; dates without a posted brickle do
+  not count.
 - The public form has CSRF protection, output escaping, input limits, a
   per-session cooldown, and a persistent limit of 10 answers per client address
   per minute. Admin sign-in attempts are limited to 5 per email/address pair

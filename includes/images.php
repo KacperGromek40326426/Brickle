@@ -5,6 +5,83 @@ const QUESTION_IMAGE_LIMIT = 5;
 const QUESTION_IMAGE_FILE_LIMIT = 2 * 1024 * 1024;
 const QUESTION_IMAGE_TOTAL_LIMIT = 10 * 1024 * 1024;
 
+function prepare_user_avatar_upload(): array
+{
+    $upload = $_FILES['avatar'] ?? null;
+    if ($upload === null || !is_array($upload) || ($upload['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+        return ['status' => 'none'];
+    }
+
+    if (($upload['error'] ?? null) !== UPLOAD_ERR_OK) {
+        return ['status' => 'error', 'message' => 'The profile picture could not be uploaded. Please try again.'];
+    }
+
+    $temporaryPath = $upload['tmp_name'] ?? null;
+    if (!is_string($temporaryPath) || !is_uploaded_file($temporaryPath)) {
+        return ['status' => 'error', 'message' => 'The profile picture upload could not be verified.'];
+    }
+
+    $fileSize = filesize($temporaryPath);
+    if ($fileSize === false || $fileSize < 1 || $fileSize > QUESTION_IMAGE_FILE_LIMIT) {
+        return ['status' => 'error', 'message' => 'The profile picture must be no larger than 2 MB.'];
+    }
+
+    $contents = file_get_contents($temporaryPath);
+    if ($contents === false) {
+        return ['status' => 'error', 'message' => 'The profile picture could not be read.'];
+    }
+
+    $imageInfo = @getimagesizefromstring($contents);
+    $allowedTypes = [
+        IMAGETYPE_JPEG => 'image/jpeg',
+        IMAGETYPE_PNG => 'image/png',
+        IMAGETYPE_WEBP => 'image/webp',
+    ];
+    $mimeType = $imageInfo === false ? null : ($allowedTypes[$imageInfo[2] ?? 0] ?? null);
+    if ($mimeType === null || (new finfo(FILEINFO_MIME_TYPE))->buffer($contents) !== $mimeType) {
+        return ['status' => 'error', 'message' => 'Choose a valid JPEG, PNG, or WebP profile picture.'];
+    }
+
+    $width = (int) ($imageInfo[0] ?? 0);
+    $height = (int) ($imageInfo[1] ?? 0);
+    if ($width < 1 || $height < 1 || $width > 6000 || $height > 6000 || $width * $height > 12000000) {
+        return ['status' => 'error', 'message' => 'The profile picture must be no larger than 6,000 pixels per side or 12 megapixels.'];
+    }
+    if (!function_exists('imagewebp')) {
+        return ['status' => 'error', 'message' => 'Profile picture uploads require WebP support on the server.'];
+    }
+
+    $source = @imagecreatefromstring($contents);
+    if ($source === false) {
+        return ['status' => 'error', 'message' => 'The profile picture could not be safely decoded.'];
+    }
+
+    $scale = min(1, 512 / max($width, $height));
+    $targetWidth = max(1, (int) round($width * $scale));
+    $targetHeight = max(1, (int) round($height * $scale));
+    $avatar = imagecreatetruecolor($targetWidth, $targetHeight);
+    if ($avatar === false) {
+        imagedestroy($source);
+        return ['status' => 'error', 'message' => 'The profile picture could not be processed.'];
+    }
+
+    imagealphablending($avatar, false);
+    imagesavealpha($avatar, true);
+    imagefill($avatar, 0, 0, imagecolorallocatealpha($avatar, 0, 0, 0, 127));
+    imagecopyresampled($avatar, $source, 0, 0, 0, 0, $targetWidth, $targetHeight, $width, $height);
+    imagedestroy($source);
+
+    ob_start();
+    $encoded = imagewebp($avatar, null, 82);
+    $avatarData = ob_get_clean();
+    imagedestroy($avatar);
+    if (!$encoded || !is_string($avatarData) || $avatarData === '' || strlen($avatarData) > QUESTION_IMAGE_FILE_LIMIT) {
+        return ['status' => 'error', 'message' => 'The profile picture could not be processed. Choose a smaller image.'];
+    }
+
+    return ['status' => 'image', 'data' => $avatarData];
+}
+
 function prepare_question_image_uploads(): array
 {
     $upload = $_FILES['question_images'] ?? null;
