@@ -754,7 +754,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#11131b">
+    <meta name="theme-color" content="#101119">
     <title><?= $isAdminPage
         ? 'Admin · Brickle of the Day'
         : ($isYesterdaysPage
@@ -952,9 +952,9 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
     <?php elseif ($isAdminPage): ?>
         <section class="admin-heading">
             <div>
-                <p class="eyebrow">YOUR PRIVATE SPACE</p>
+                <p class="eyebrow">YOUR PRIVATE LITTLE CONTROL ROOM</p>
                 <h1>Good to see you.</h1>
-                <p class="muted">Signed in as <?= e(is_string($adminEmail) ? $adminEmail : '') ?>.</p>
+                <p class="muted">Signed in as <?= e(is_string($adminEmail) ? $adminEmail : '') ?>. The people await today's important question.</p>
             </div>
             <span class="date-pill"><?= e(date('l, F j')) ?></span>
         </section>
@@ -1002,11 +1002,11 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                     <details class="visitor-preview" data-question-preview>
                         <summary class="button button-secondary">Preview as a visitor</summary>
                         <div class="preview-content">
-                            <p class="eyebrow"><span class="live-dot"></span> A LITTLE BRICKLE FOR TODAY</p>
+                            <p class="eyebrow"><span class="live-dot"></span> TODAY'S TINY QUESTION OF GREAT IMPORTANCE</p>
                             <p class="hero-date" data-preview-date><?= e(date('l, F j', strtotime($editQuestion['quiz_date'] ?? $today))) ?></p>
                             <h3 data-preview-prompt><?= nl2br(e($editQuestion['prompt'] ?? 'Your brickle prompt will appear here.')) ?></h3>
                             <div class="preview-gallery question-gallery homepage-image" data-preview-gallery></div>
-                            <p class="hero-subtitle">No pressure. Answer anonymously or sign in to add it to your profile.</p>
+                            <p class="hero-subtitle">No login. No essay citations. Just your answer.</p>
                             <span class="button button-primary preview-answer-button">Add your answer ↓</span>
                         </div>
                     </details>
@@ -1047,7 +1047,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                 </div>
             </div>
             <?php if (!$adminQuestions): ?>
-                <div class="empty-state panel"><p>Your schedule is clear. Add a brickle for today or a future day.</p></div>
+                <div class="empty-state panel"><p>Your schedule is suspiciously peaceful. Add a brickle before anyone notices.</p></div>
             <?php else: ?>
                 <div class="archive-list">
                     <?php foreach ($adminQuestions as $question): ?>
@@ -1118,7 +1118,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                 <span class="count-pill"><?= count($pastBrickles) ?> of 5</span>
             </div>
             <?php if (!$pastBrickles): ?>
-                <div class="empty-state panel"><p>No past brickles yet. Come back after today's brickle.</p></div>
+                <div class="empty-state panel"><p>No yesterdays yet. Time is working on it.</p></div>
             <?php else: ?>
                 <div class="archive-list">
                     <?php foreach ($pastBrickles as $brickle): ?>
@@ -1154,16 +1154,16 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
         </section>
     <?php else: ?>
         <section class="hero">
-            <p class="eyebrow"><span class="live-dot"></span> A LITTLE BRICKLE FOR TODAY</p>
+            <p class="eyebrow"><span class="live-dot"></span> TODAY'S TINY QUESTION OF GREAT IMPORTANCE</p>
             <p class="hero-date"><?= e(date('l, F j')) ?></p>
             <?php if ($todayQuestion): ?>
                 <h1><?= nl2br(e($todayQuestion['prompt'])) ?></h1>
                 <?php render_question_gallery($todayImages, 'homepage-image', 'Brickle image '); ?>
-                <p class="hero-subtitle">No pressure. Answer anonymously or sign in to add it to your profile.</p>
+                <p class="hero-subtitle">No login. No essay citations. Just your answer.</p>
                 <a class="button button-primary hero-button" href="#answer">Add your answer <span aria-hidden="true">↓</span></a>
             <?php else: ?>
                 <h1>Today's brickle is on its way.</h1>
-                <p class="hero-subtitle">Today's brickle hasn't been posted yet. Pop back soon.</p>
+                <p class="hero-subtitle">Today's question hasn't arrived. We assume it's stuck in traffic.</p>
             <?php endif; ?>
             <div class="hero-decoration" aria-hidden="true"><span>?</span><i></i><b></b></div>
         </section>
@@ -1173,12 +1173,12 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                 <div class="section-heading">
                     <div>
                         <p class="eyebrow">THE COMMUNITY</p>
-                        <h2>What everyone said</h2>
+                        <h2>The group chat, but organized</h2>
                     </div>
                     <span class="count-pill"><?= count($publicAnswers) ?> <?= count($publicAnswers) === 1 ? 'answer' : 'answers' ?></span>
                 </div>
                 <?php if (!$publicAnswers): ?>
-                    <div class="empty-state panel"><span class="empty-icon" aria-hidden="true">✳</span><p>Be the first to share a thought.</p></div>
+                    <div class="empty-state panel"><span class="empty-icon" aria-hidden="true">✳</span><p>It's quiet in here. Someone say something mildly interesting.</p></div>
                 <?php else: ?>
                     <ul class="answer-list">
                         <?php foreach ($publicAnswers as $answer): ?>
@@ -1201,7 +1201,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                 <div>
                     <p class="eyebrow">YOUR TURN</p>
                     <h2>Add your answer</h2>
-                    <p class="muted">Your answer will be visible to everyone<?= $currentUser ? ' and linked to your profile' : '' ?>.</p>
+                    <p class="muted">Your answer will be visible to everyone<?= $currentUser ? ' and linked to your profile' : '' ?>. Please keep the witness protection details out of it.</p>
                 </div>
                 <form class="stack-form" method="post" action="index.php#answer">
                     <?= csrf_field() ?>
@@ -1227,8 +1227,8 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
 </main>
 
 <footer class="site-footer">
-    <span>Made for good conversations.</span>
-    <span>One brickle. Every day.</span>
+    <span>Made for good conversations and suspiciously specific opinions.</span>
+    <span>One brickle a day. Absolutely no homework.</span>
 </footer>
 </body>
 </html>
