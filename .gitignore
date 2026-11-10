@@ -12,6 +12,10 @@ build/
 .next/
 out/
 
+# Local database files
+*.sqlite
+*.sqlite-*
+
 # Logs
 *.log
 npm-debug.log*
