@@ -13,3 +13,11 @@ RUN apt-get update \
 COPY docker/apache-vhost.conf /etc/apache2/sites-available/000-default.conf
 
 WORKDIR /var/www/html
+
+COPY index.php image.php setup.php .htaccess ./
+COPY includes/ ./includes/
+COPY assets/ ./assets/
+
+RUN chown -R root:root /var/www/html \
+    && find /var/www/html -type d -exec chmod 0555 {} + \
+    && find /var/www/html -type f -exec chmod 0444 {} +

@@ -41,6 +41,27 @@ the `quiz_data` Docker volume, so starting the server again with
 cutoff timezone, create a `.env` file next to `docker-compose.yml` with, for
 example, `APP_TIMEZONE=Europe/London`.
 
+### Docker deployment behind a TLS reverse proxy
+
+The default `docker-compose.yml` is deliberately local-only: it bind-mounts the
+working tree, binds to loopback, and disables secure cookies for HTTP
+development. For a self-managed host, build and run the production Compose file
+instead:
+
+```powershell
+docker compose -f docker-compose.production.yml build
+docker compose -f docker-compose.production.yml run --rm --user www-data -it web php setup.php
+docker compose -f docker-compose.production.yml up -d
+```
+
+This image contains only the runtime PHP files and serves on
+`127.0.0.1:8081`; put it behind a reverse proxy that handles HTTPS and redirects
+HTTP to HTTPS. Do not expose the container directly to the public internet over
+plain HTTP. Configure the web server so PHP's `REMOTE_ADDR` is the actual
+client address, or a trusted-proxy-aware address; do not trust a
+user-supplied forwarding header. The named `quiz_data` volume persists the
+database and rate-limiting secret. Back up that volume securely.
+
 In the admin panel, schedule brickles for today or a future date. The daily
 lineup shows upcoming, today's, and past brickles; edit one to change its
 prompt without changing its date. Use **Delete**, then confirm, to permanently
@@ -87,10 +108,15 @@ environment, run `php -S 127.0.0.1:8000` from the project folder, and open
 - Set a production timezone explicitly. The application stores brickle dates and
   timestamps using that timezone.
 - Answers are displayed publicly. Do not ask visitors to include sensitive
-  personal information. The app does not store visitor IP addresses.
-- The public form has CSRF protection, output escaping, input limits, and a
-  short per-session submission cooldown. These reduce common risks but are
-  not a substitute for host-level backups, HTTPS, and keeping PHP current.
+  personal information. The app stores keyed hashes of client IP addresses,
+  not raw addresses, for rate limiting; old rate-limit records are removed
+  after 24 hours.
+- The public form has CSRF protection, output escaping, input limits, a
+  per-session cooldown, and a persistent limit of 10 answers per client address
+  per minute. Admin sign-in attempts are limited to 5 per email/address pair
+  per 10 minutes and 30 per client address per 15 minutes. These controls
+  reduce abuse but are not a substitute for host-level firewall/WAF limits,
+  backups, HTTPS, and keeping PHP current.
 - Admins can add up to five JPEG, PNG, or WebP images per brickle (2 MB each).
   Images are decoded and re-encoded as WebP before being saved with the brickle
   in SQLite. Visitors can slide through today's images and images on the five

@@ -114,3 +114,33 @@ $database->exec(
 );
 $database->exec('CREATE INDEX IF NOT EXISTS answers_question_id_idx ON answers(question_id, created_at)');
 $database->exec('CREATE INDEX IF NOT EXISTS question_image_gallery_question_idx ON question_image_gallery(question_id, sort_order)');
+$database->exec(
+    'CREATE TABLE IF NOT EXISTS request_rate_limits (
+        bucket_hash TEXT NOT NULL,
+        occurred_at INTEGER NOT NULL
+    )'
+);
+$database->exec('CREATE INDEX IF NOT EXISTS request_rate_limits_bucket_idx ON request_rate_limits(bucket_hash, occurred_at)');
+$database->exec('CREATE INDEX IF NOT EXISTS request_rate_limits_expiry_idx ON request_rate_limits(occurred_at)');
+$database->exec(
+    'CREATE TABLE IF NOT EXISTS application_secrets (
+        secret_name TEXT PRIMARY KEY,
+        secret_value TEXT NOT NULL
+    )'
+);
+$secretStatement = $database->prepare(
+    'INSERT OR IGNORE INTO application_secrets (secret_name, secret_value)
+     VALUES (:secret_name, :secret_value)'
+);
+$secretStatement->execute([
+    'secret_name' => 'rate_limit_hmac',
+    'secret_value' => bin2hex(random_bytes(32)),
+]);
+$secretStatement = $database->prepare(
+    'SELECT secret_value FROM application_secrets WHERE secret_name = :secret_name'
+);
+$secretStatement->execute(['secret_name' => 'rate_limit_hmac']);
+$rateLimitSecret = hex2bin((string) $secretStatement->fetchColumn());
+if (!is_string($rateLimitSecret) || strlen($rateLimitSecret) !== 32) {
+    throw new RuntimeException('The request rate-limit secret is invalid.');
+}

@@ -14,18 +14,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = post_value('action');
 
     if ($action === 'login') {
-        $attempts = $_SESSION['login_attempts'] ?? ['count' => 0, 'until' => 0];
-        if (!is_array($attempts) || !isset($attempts['count'], $attempts['until'])) {
-            $attempts = ['count' => 0, 'until' => 0];
-        }
-
-        if ((int) $attempts['until'] > time()) {
+        $email = post_value('email');
+        $password = post_raw('password');
+        $clientBucket = client_rate_limit_bucket($rateLimitSecret, 'admin-login');
+        $identityBucket = client_rate_limit_bucket(
+            $rateLimitSecret,
+            'admin-login-identity',
+            strtolower(substr($email, 0, 254))
+        );
+        $clientAllowed = consume_rate_limit($database, $clientBucket, 30, 900);
+        $identityAllowed = consume_rate_limit($database, $identityBucket, 5, 600);
+        if (!$clientAllowed || !$identityAllowed) {
             flash('Too many sign-in attempts. Try again in a few minutes.', 'error');
             redirect('index.php?page=admin');
         }
 
-        $email = post_value('email');
-        $password = post_raw('password');
         $admin = false;
         if (strlen($email) <= 254 && strlen($password) <= 128) {
             $statement = $database->prepare('SELECT id, email, password_hash FROM admins WHERE email = :email');
@@ -34,21 +37,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($admin && password_verify($password, $admin['password_hash'])) {
+            clear_rate_limit_bucket($database, $identityBucket);
             session_regenerate_id(true);
             unset($_SESSION['csrf_token']);
             $_SESSION['admin_id'] = (int) $admin['id'];
             $_SESSION['admin_email'] = $admin['email'];
-            unset($_SESSION['login_attempts']);
             csrf_token();
             flash('Welcome back.');
             redirect('index.php?page=admin');
         }
 
-        $attempts['count'] = (int) $attempts['count'] + 1;
-        if ($attempts['count'] >= 5) {
-            $attempts = ['count' => 0, 'until' => time() + 600];
-        }
-        $_SESSION['login_attempts'] = $attempts;
         flash('Email or password is incorrect.', 'error');
         redirect('index.php?page=admin');
     }
@@ -262,6 +260,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!$statement->fetch()) {
             flash("Today's brickle is no longer available.", 'error');
             redirect('index.php');
+        }
+
+        $answerBucket = client_rate_limit_bucket($rateLimitSecret, 'public-answer');
+        if (!consume_rate_limit($database, $answerBucket, 10, 60)) {
+            flash('Too many answers were sent from this connection. Please try again in a minute.', 'error');
+            redirect('index.php#answer');
         }
 
         $statement = $database->prepare(

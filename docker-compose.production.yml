@@ -1,0 +1,15 @@
+services:
+  web:
+    build: .
+    ports:
+      - "127.0.0.1:8081:80"
+    volumes:
+      - production_quiz_data:/var/lib/brickle
+    environment:
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
+      APP_SECURE_COOKIES: "1"
+      PRIVATE_STORAGE_PATH: /var/lib/brickle
+    restart: unless-stopped
+
+volumes:
+  production_quiz_data:
