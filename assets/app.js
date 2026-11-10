@@ -153,7 +153,7 @@ if (editor) {
         previewObjectUrls = [];
 
         if (previewPrompt) {
-            previewPrompt.textContent = prompt?.value.trim() || 'Your question will appear here.';
+            previewPrompt.textContent = prompt?.value.trim() || 'Your brickle prompt will appear here.';
         }
         if (previewDate) {
             previewDate.textContent = formattedDate(date?.value || '');

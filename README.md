@@ -1,11 +1,11 @@
-# Friends Quiz
+# Brickle
 
-A lightweight daily quiz website for a small group of friends. Anyone can read
-the current day's question and answers without an account. Visitors can answer
-with an optional display name; the administrator can publish questions and
-review all responses from a private admin area. Questions can be scheduled in
-advance; their dates are fixed once created, and deleting a quiz also deletes
-its answers.
+A lightweight daily prompt website for a small group of friends. Each daily
+prompt is a brickle. Anyone can read today's brickle and its answers without
+an account, or browse the five most recent past brickles on **Brickles of the
+Yesterdays**. Visitors can answer with an optional display name; the
+administrator can schedule brickles and review all responses from a private
+admin area.
 
 ## Requirements
 
@@ -37,14 +37,14 @@ public HTTPS deployment.
 
 To stop the local server, run `docker compose down`. Your database remains in
 the `quiz_data` Docker volume, so starting the server again with
-`docker compose up -d` keeps your questions and answers. To change the daily
+`docker compose up -d` keeps your brickles and answers. To change the daily
 cutoff timezone, create a `.env` file next to `docker-compose.yml` with, for
 example, `APP_TIMEZONE=Europe/London`.
 
-In the admin panel, schedule quizzes for today or a future date. The daily
-lineup shows upcoming, today's, and past quizzes; edit a quiz to change only
-its question text. Dates cannot be changed after scheduling. Use **Delete**,
-then confirm, to permanently remove a quiz and all of its answers.
+In the admin panel, schedule brickles for today or a future date. The daily
+lineup shows upcoming, today's, and past brickles; edit one to change its
+prompt without changing its date. Use **Delete**, then confirm, to permanently
+remove a brickle and all of its answers.
 
 ### Run with a local PHP installation
 
@@ -52,7 +52,7 @@ then confirm, to permanently remove a quiz and all of its answers.
 2. Make sure PHP can create and write to the private directory beside the
    project folder. Alternatively, set `PRIVATE_STORAGE_PATH` to a writable
    directory **outside** the document root.
-3. Set `APP_TIMEZONE` to the timezone used to decide when a new daily question
+3. Set `APP_TIMEZONE` to the timezone used to decide when a new daily brickle
    starts (for example, `Europe/London`). The default is `UTC`.
 4. Run `php setup.php` from a terminal. Enter the administrator's email address.
    The command creates the SQLite database and prints a one-time generated
@@ -84,19 +84,20 @@ environment, run `php -S 127.0.0.1:8000` from the project folder, and open
 - Disable PHP error display in production and enable server-side error logging.
   Keep the database and session files out of public backups and web-accessible
   directories.
-- Set a production timezone explicitly. The application stores quiz dates and
+- Set a production timezone explicitly. The application stores brickle dates and
   timestamps using that timezone.
 - Answers are displayed publicly. Do not ask visitors to include sensitive
   personal information. The app does not store visitor IP addresses.
 - The public form has CSRF protection, output escaping, input limits, and a
   short per-session submission cooldown. These reduce common risks but are
   not a substitute for host-level backups, HTTPS, and keeping PHP current.
-- Admins can add up to five JPEG, PNG, or WebP images per question (2 MB each).
-  Images are decoded and re-encoded as WebP before being saved with the quiz in
-  SQLite. Visitors can slide through today's images. Future and past quiz
-  images are only served to the signed-in administrator.
-- The admin editor includes a live visitor-perspective preview of the question
-  text, scheduled date, and selected images before saving.
+- Admins can add up to five JPEG, PNG, or WebP images per brickle (2 MB each).
+  Images are decoded and re-encoded as WebP before being saved with the brickle
+  in SQLite. Visitors can slide through today's images and images on the five
+  most recent past brickles; older brickle images are only served to the
+  signed-in administrator.
+- The admin editor includes a live visitor-perspective preview of the brickle
+  prompt, scheduled date, and selected images before saving.
 
 ## Configuration
 

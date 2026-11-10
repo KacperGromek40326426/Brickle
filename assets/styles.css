@@ -125,6 +125,10 @@ textarea {
     cursor: pointer;
 }
 
+.nav-label-short {
+    display: none;
+}
+
 .page-shell {
     width: min(900px, calc(100% - 48px));
     min-height: calc(100vh - 154px);
@@ -818,6 +822,27 @@ p {
     padding-top: 43px;
 }
 
+.public-archive {
+    padding-top: 58px;
+}
+
+.public-archive .section-heading {
+    align-items: flex-start;
+}
+
+.public-archive .section-heading h1 {
+    margin: 0;
+    font-size: clamp(29px, 5vw, 42px);
+    font-weight: 630;
+    letter-spacing: -.055em;
+    line-height: 1.2;
+}
+
+.public-archive .section-heading .muted {
+    margin: 8px 0 0;
+    font-size: 13px;
+}
+
 .archive-list {
     display: grid;
     gap: 12px;
@@ -825,6 +850,15 @@ p {
 
 .archive-card {
     padding: 20px;
+}
+
+.public-brickle > h2 {
+    margin: 0;
+    font-size: clamp(22px, 4vw, 30px);
+    font-weight: 620;
+    letter-spacing: -.04em;
+    line-height: 1.35;
+    white-space: pre-line;
 }
 
 .archive-card-heading {
@@ -987,6 +1021,14 @@ p {
 
     .site-header nav {
         gap: 17px;
+    }
+
+    .nav-label-long {
+        display: none;
+    }
+
+    .nav-label-short {
+        display: inline;
     }
 
     .hero {

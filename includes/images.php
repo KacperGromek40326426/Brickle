@@ -32,7 +32,7 @@ function prepare_question_image_uploads(): array
         return ['status' => 'none'];
     }
     if (count($selected) > QUESTION_IMAGE_LIMIT) {
-        return ['status' => 'error', 'message' => 'Choose up to 5 images per quiz.'];
+        return ['status' => 'error', 'message' => 'Choose up to 5 images per brickle.'];
     }
 
     $images = [];
@@ -156,7 +156,7 @@ function store_question_images(PDO $database, int $questionId, array $images, ar
     $statement->execute(['question_id' => $questionId]);
     $existingCount = (int) $statement->fetchColumn();
     if ($existingCount + count($images) > QUESTION_IMAGE_LIMIT) {
-        throw new DomainException('A quiz can have up to 5 images. Remove an image or select fewer new images.');
+        throw new DomainException('A brickle can have up to 5 images. Remove an image or select fewer new images.');
     }
 
     if (!$images) {
@@ -199,7 +199,7 @@ function render_question_gallery(array $images, string $className, string $altTe
         return;
     }
 
-    echo '<div class="question-gallery ' . e($className) . '" data-carousel role="region" aria-roledescription="carousel" aria-label="Question images">';
+    echo '<div class="question-gallery ' . e($className) . '" data-carousel role="region" aria-roledescription="carousel" aria-label="Brickle images">';
     echo '<div class="gallery-slides">';
     foreach ($images as $index => $image) {
         $isCurrent = $index === 0;
