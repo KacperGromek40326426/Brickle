@@ -1228,7 +1228,18 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
 
 <footer class="site-footer">
     <span>Made for good conversations and suspiciously specific opinions.</span>
-    <span>One brickle a day. Absolutely no homework.</span>
+    <span>
+        <?php if (!$isAdminPage && !$isYesterdaysPage && !$isAccountPage && !$isProfilePage): ?>
+            One <details class="footer-easter-egg">
+                <summary aria-label="Reveal a tiny Brickle surprise">brickle</summary>
+                <span class="footer-easter-egg-popover">
+                    <img src="assets/brickle-easter-egg.png" alt="A tiny face hiding behind its hands." width="40" height="40">
+                </span>
+            </details>. Every day.
+        <?php else: ?>
+            One brickle a day. Absolutely no homework.
+        <?php endif; ?>
+    </span>
 </footer>
 </body>
 </html>

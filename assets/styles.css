@@ -1328,6 +1328,85 @@ p {
     text-align: right;
 }
 
+.footer-easter-egg {
+    position: relative;
+    display: inline-block;
+    color: var(--accent);
+    text-align: center;
+}
+
+.footer-easter-egg > summary {
+    display: inline-flex;
+    min-height: 34px;
+    align-items: center;
+    padding: 0 3px;
+    border-radius: 6px;
+    color: var(--accent);
+    cursor: pointer;
+    list-style: none;
+    text-decoration: underline dotted rgb(200 241 125 / 55%);
+    text-underline-offset: 3px;
+    transition: background .18s ease, color .18s ease;
+}
+
+.footer-easter-egg > summary::-webkit-details-marker {
+    display: none;
+}
+
+.footer-easter-egg > summary:hover,
+.footer-easter-egg[open] > summary {
+    background: rgb(200 241 125 / 9%);
+    color: #e0ffad;
+}
+
+.footer-easter-egg-popover {
+    position: absolute;
+    z-index: 5;
+    bottom: calc(100% + 9px);
+    left: 50%;
+    display: block;
+    padding: 7px;
+    transform: translateX(-50%);
+    border: 1px solid rgb(208 192 255 / 22%);
+    border-radius: 14px;
+    background: #222431;
+    box-shadow: 0 12px 32px rgb(0 0 0 / 42%);
+    animation: easter-egg-pop .16s ease-out;
+}
+
+.footer-easter-egg-popover::after {
+    position: absolute;
+    top: 100%;
+    left: calc(50% - 5px);
+    width: 9px;
+    height: 9px;
+    transform: translateY(-50%) rotate(45deg);
+    border-right: 1px solid rgb(208 192 255 / 22%);
+    border-bottom: 1px solid rgb(208 192 255 / 22%);
+    background: #222431;
+    content: "";
+}
+
+.footer-easter-egg-popover img {
+    display: block;
+    width: 72px;
+    height: 72px;
+    border-radius: 8px;
+    image-rendering: pixelated;
+}
+
+@keyframes easter-egg-pop {
+    from {
+        opacity: 0;
+        transform: translate(-50%, 5px) scale(.92);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate(-50%, 0) scale(1);
+    }
+}
+
 @media (max-width: 700px) {
     .site-header,
     .site-footer {
@@ -1572,5 +1651,9 @@ p {
     *::after {
         scroll-behavior: auto !important;
         transition-duration: .01ms !important;
+    }
+
+    .footer-easter-egg-popover {
+        animation: none;
     }
 }
