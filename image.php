@@ -11,19 +11,24 @@ if ($avatarId !== '') {
         exit;
     }
 
-    $statement = $database->prepare('SELECT avatar_data FROM users WHERE id = :id');
+    $statement = $database->prepare('SELECT avatar_data, avatar_mime_type FROM users WHERE id = :id');
     $statement->execute(['id' => (int) $avatarId]);
-    $avatar = $statement->fetchColumn();
-    if (!is_string($avatar) || $avatar === '') {
+    $avatar = $statement->fetch();
+    if (
+        !$avatar
+        || !is_string($avatar['avatar_data'])
+        || $avatar['avatar_data'] === ''
+        || !in_array($avatar['avatar_mime_type'], ['image/jpeg', 'image/png', 'image/webp'], true)
+    ) {
         http_response_code(404);
         exit;
     }
 
-    header('Content-Type: image/webp');
-    header('Content-Length: ' . strlen($avatar));
-    header('Content-Disposition: inline; filename="avatar.webp"');
+    header('Content-Type: ' . $avatar['avatar_mime_type']);
+    header('Content-Length: ' . strlen($avatar['avatar_data']));
+    header('Content-Disposition: inline; filename="avatar.' . substr($avatar['avatar_mime_type'], 6) . '"');
     header('X-Content-Type-Options: nosniff');
-    echo $avatar;
+    echo $avatar['avatar_data'];
     exit;
 }
 
@@ -59,15 +64,15 @@ $statement->execute([
 $image = $statement->fetch();
 if (
     !$image
-    || $image['mime_type'] !== 'image/webp'
+    || !in_array($image['mime_type'], ['image/jpeg', 'image/png', 'image/webp'], true)
     || (!(bool) $image['is_today'] && !(bool) $image['is_recent_past'] && !(bool) $image['has_public_timeline'] && !is_admin())
 ) {
     http_response_code(404);
     exit;
 }
 
-header('Content-Type: image/webp');
+header('Content-Type: ' . $image['mime_type']);
 header('Content-Length: ' . strlen($image['image_data']));
-header('Content-Disposition: inline; filename="question.webp"');
+header('Content-Disposition: inline; filename="question.' . substr($image['mime_type'], 6) . '"');
 header('X-Content-Type-Options: nosniff');
 echo $image['image_data'];

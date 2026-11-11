@@ -143,7 +143,7 @@ function client_rate_limit_bucket(string $secret, string $scope, string $identit
 function consume_rate_limit(PDO $database, string $bucketHash, int $limit, int $windowSeconds): bool
 {
     $now = time();
-    $database->exec('BEGIN IMMEDIATE');
+    $database->beginTransaction();
     try {
         $statement = $database->prepare('DELETE FROM request_rate_limits WHERE occurred_at <= :expiry');
         $statement->execute(['expiry' => $now - 86400]);
@@ -157,7 +157,7 @@ function consume_rate_limit(PDO $database, string $bucketHash, int $limit, int $
             'window_start' => $now - $windowSeconds,
         ]);
         if ((int) $statement->fetchColumn() >= $limit) {
-            $database->exec('COMMIT');
+            $database->commit();
 
             return false;
         }
@@ -169,12 +169,12 @@ function consume_rate_limit(PDO $database, string $bucketHash, int $limit, int $
             'bucket_hash' => $bucketHash,
             'occurred_at' => $now,
         ]);
-        $database->exec('COMMIT');
+        $database->commit();
 
         return true;
     } catch (Throwable $exception) {
         if ($database->inTransaction()) {
-            $database->exec('ROLLBACK');
+            $database->rollBack();
         }
         throw $exception;
     }

@@ -5,6 +5,10 @@ node_modules/
 .env
 .env.*
 !.env.example
+includes/setup-token.php
+includes/config.php
+includes/config.local.php
+brickle-config.php
 
 # Build output
 dist/

@@ -2,8 +2,74 @@
 declare(strict_types=1);
 
 const QUESTION_IMAGE_LIMIT = 5;
-const QUESTION_IMAGE_FILE_LIMIT = 2 * 1024 * 1024;
-const QUESTION_IMAGE_TOTAL_LIMIT = 10 * 1024 * 1024;
+const QUESTION_IMAGE_FILE_LIMIT = 1024 * 1024;
+const QUESTION_IMAGE_TOTAL_LIMIT = 5 * 1024 * 1024;
+const QUESTION_IMAGE_MAX_DIMENSION = 4000;
+const QUESTION_IMAGE_MAX_PIXELS = 4000000;
+
+function verified_image_mime(string $contents, array $allowedTypes): ?string
+{
+    $imageInfo = @getimagesizefromstring($contents);
+    if ($imageInfo === false) {
+        return null;
+    }
+
+    $mimeType = $allowedTypes[$imageInfo[2] ?? 0] ?? null;
+    if ($mimeType === null) {
+        return null;
+    }
+    if (class_exists(finfo::class)) {
+        $fileInfo = new finfo(FILEINFO_MIME_TYPE);
+        if ($fileInfo->buffer($contents) !== $mimeType) {
+            return null;
+        }
+    }
+
+    return $mimeType;
+}
+
+function normalize_image_data(string $contents, string $mimeType, int $width, int $height, int $maxDimension): array
+{
+    if (
+        !function_exists('imagecreatefromstring')
+        || !function_exists('imagecreatetruecolor')
+        || !function_exists('imagewebp')
+        || !function_exists('imagecopyresampled')
+    ) {
+        return ['data' => $contents, 'mime_type' => $mimeType];
+    }
+
+    $source = @imagecreatefromstring($contents);
+    if ($source === false) {
+        return ['data' => $contents, 'mime_type' => $mimeType];
+    }
+
+    $scale = min(1, $maxDimension / max($width, $height));
+    $targetWidth = max(1, (int) round($width * $scale));
+    $targetHeight = max(1, (int) round($height * $scale));
+    $image = imagecreatetruecolor($targetWidth, $targetHeight);
+    if ($image === false) {
+        imagedestroy($source);
+        return ['data' => $contents, 'mime_type' => $mimeType];
+    }
+
+    imagealphablending($image, false);
+    imagesavealpha($image, true);
+    imagefill($image, 0, 0, imagecolorallocatealpha($image, 0, 0, 0, 127));
+    imagecopyresampled($image, $source, 0, 0, 0, 0, $targetWidth, $targetHeight, $width, $height);
+    imagedestroy($source);
+
+    ob_start();
+    $encoded = imagewebp($image, null, 82);
+    $normalizedImage = ob_get_clean();
+    imagedestroy($image);
+
+    if (!$encoded || !is_string($normalizedImage) || $normalizedImage === '' || strlen($normalizedImage) > QUESTION_IMAGE_FILE_LIMIT) {
+        return ['data' => $contents, 'mime_type' => $mimeType];
+    }
+
+    return ['data' => $normalizedImage, 'mime_type' => 'image/webp'];
+}
 
 function prepare_user_avatar_upload(): array
 {
@@ -23,7 +89,7 @@ function prepare_user_avatar_upload(): array
 
     $fileSize = filesize($temporaryPath);
     if ($fileSize === false || $fileSize < 1 || $fileSize > QUESTION_IMAGE_FILE_LIMIT) {
-        return ['status' => 'error', 'message' => 'The profile picture must be no larger than 2 MB.'];
+        return ['status' => 'error', 'message' => 'The profile picture must be no larger than 1 MB.'];
     }
 
     $contents = file_get_contents($temporaryPath);
@@ -31,55 +97,25 @@ function prepare_user_avatar_upload(): array
         return ['status' => 'error', 'message' => 'The profile picture could not be read.'];
     }
 
-    $imageInfo = @getimagesizefromstring($contents);
     $allowedTypes = [
         IMAGETYPE_JPEG => 'image/jpeg',
         IMAGETYPE_PNG => 'image/png',
         IMAGETYPE_WEBP => 'image/webp',
     ];
-    $mimeType = $imageInfo === false ? null : ($allowedTypes[$imageInfo[2] ?? 0] ?? null);
-    if ($mimeType === null || (new finfo(FILEINFO_MIME_TYPE))->buffer($contents) !== $mimeType) {
+    $mimeType = verified_image_mime($contents, $allowedTypes);
+    $imageInfo = @getimagesizefromstring($contents);
+    if ($mimeType === null || $imageInfo === false) {
         return ['status' => 'error', 'message' => 'Choose a valid JPEG, PNG, or WebP profile picture.'];
     }
 
     $width = (int) ($imageInfo[0] ?? 0);
     $height = (int) ($imageInfo[1] ?? 0);
-    if ($width < 1 || $height < 1 || $width > 6000 || $height > 6000 || $width * $height > 12000000) {
-        return ['status' => 'error', 'message' => 'The profile picture must be no larger than 6,000 pixels per side or 12 megapixels.'];
+    if ($width < 1 || $height < 1 || $width > QUESTION_IMAGE_MAX_DIMENSION || $height > QUESTION_IMAGE_MAX_DIMENSION || $width * $height > QUESTION_IMAGE_MAX_PIXELS) {
+        return ['status' => 'error', 'message' => 'The profile picture must be no larger than 4,000 pixels per side or 4 megapixels.'];
     }
-    if (!function_exists('imagewebp')) {
-        return ['status' => 'error', 'message' => 'Profile picture uploads require WebP support on the server.'];
-    }
+    $normalized = normalize_image_data($contents, $mimeType, $width, $height, 512);
 
-    $source = @imagecreatefromstring($contents);
-    if ($source === false) {
-        return ['status' => 'error', 'message' => 'The profile picture could not be safely decoded.'];
-    }
-
-    $scale = min(1, 512 / max($width, $height));
-    $targetWidth = max(1, (int) round($width * $scale));
-    $targetHeight = max(1, (int) round($height * $scale));
-    $avatar = imagecreatetruecolor($targetWidth, $targetHeight);
-    if ($avatar === false) {
-        imagedestroy($source);
-        return ['status' => 'error', 'message' => 'The profile picture could not be processed.'];
-    }
-
-    imagealphablending($avatar, false);
-    imagesavealpha($avatar, true);
-    imagefill($avatar, 0, 0, imagecolorallocatealpha($avatar, 0, 0, 0, 127));
-    imagecopyresampled($avatar, $source, 0, 0, 0, 0, $targetWidth, $targetHeight, $width, $height);
-    imagedestroy($source);
-
-    ob_start();
-    $encoded = imagewebp($avatar, null, 82);
-    $avatarData = ob_get_clean();
-    imagedestroy($avatar);
-    if (!$encoded || !is_string($avatarData) || $avatarData === '' || strlen($avatarData) > QUESTION_IMAGE_FILE_LIMIT) {
-        return ['status' => 'error', 'message' => 'The profile picture could not be processed. Choose a smaller image.'];
-    }
-
-    return ['status' => 'image', 'data' => $avatarData];
+    return ['status' => 'image'] + $normalized;
 }
 
 function prepare_question_image_uploads(): array
@@ -118,7 +154,7 @@ function prepare_question_image_uploads(): array
         $error = $upload['error'][$index];
         if ($error !== UPLOAD_ERR_OK) {
             $message = $error === UPLOAD_ERR_INI_SIZE || $error === UPLOAD_ERR_FORM_SIZE
-                ? 'Each image must be no larger than 2 MB. Select fewer or smaller images.'
+                ? 'Each image must be no larger than 1 MB. Select fewer or smaller images.'
                 : 'An image could not be uploaded. Please try again.';
 
             return ['status' => 'error', 'message' => $message];
@@ -131,11 +167,11 @@ function prepare_question_image_uploads(): array
 
         $fileSize = filesize($temporaryPath);
         if ($fileSize === false || $fileSize < 1 || $fileSize > QUESTION_IMAGE_FILE_LIMIT) {
-            return ['status' => 'error', 'message' => 'Each image must be no larger than 2 MB.'];
+            return ['status' => 'error', 'message' => 'Each image must be no larger than 1 MB.'];
         }
         $totalSize += $fileSize;
         if ($totalSize > QUESTION_IMAGE_TOTAL_LIMIT) {
-            return ['status' => 'error', 'message' => 'The selected images must total no more than 10 MB.'];
+            return ['status' => 'error', 'message' => 'The selected images must total no more than 5 MB.'];
         }
 
         $contents = file_get_contents($temporaryPath);
@@ -143,57 +179,24 @@ function prepare_question_image_uploads(): array
             return ['status' => 'error', 'message' => 'An uploaded image could not be read.'];
         }
 
-        $imageInfo = @getimagesizefromstring($contents);
-        if ($imageInfo === false) {
-            return ['status' => 'error', 'message' => 'Choose valid JPEG, PNG, or WebP images.'];
-        }
-
         $allowedTypes = [
             IMAGETYPE_JPEG => 'image/jpeg',
             IMAGETYPE_PNG => 'image/png',
             IMAGETYPE_WEBP => 'image/webp',
         ];
-        $mimeType = $allowedTypes[$imageInfo[2] ?? 0] ?? null;
-        if ($mimeType === null || strlen($contents) !== $fileSize) {
+        $mimeType = verified_image_mime($contents, $allowedTypes);
+        $imageInfo = @getimagesizefromstring($contents);
+        if ($mimeType === null || $imageInfo === false || strlen($contents) !== $fileSize) {
             return ['status' => 'error', 'message' => 'Choose valid JPEG, PNG, or WebP images.'];
         }
 
         $width = (int) ($imageInfo[0] ?? 0);
         $height = (int) ($imageInfo[1] ?? 0);
-        if ($width < 1 || $height < 1 || $width > 6000 || $height > 6000 || $width * $height > 12000000) {
-            return ['status' => 'error', 'message' => 'Each image must be no larger than 6,000 pixels per side or 12 megapixels.'];
+        if ($width < 1 || $height < 1 || $width > QUESTION_IMAGE_MAX_DIMENSION || $height > QUESTION_IMAGE_MAX_DIMENSION || $width * $height > QUESTION_IMAGE_MAX_PIXELS) {
+            return ['status' => 'error', 'message' => 'Each image must be no larger than 4,000 pixels per side or 4 megapixels.'];
         }
 
-        $fileInfo = new finfo(FILEINFO_MIME_TYPE);
-        if ($fileInfo->buffer($contents) !== $mimeType) {
-            return ['status' => 'error', 'message' => 'An image file type could not be verified.'];
-        }
-
-        if (!function_exists('imagewebp')) {
-            return ['status' => 'error', 'message' => 'Image uploads are unavailable because WebP support is not enabled on the server.'];
-        }
-
-        $image = @imagecreatefromstring($contents);
-        if ($image === false) {
-            return ['status' => 'error', 'message' => 'An image could not be safely decoded.'];
-        }
-
-        ob_start();
-        $encoded = imagewebp($image, null, 82);
-        $normalizedImage = ob_get_clean();
-        imagedestroy($image);
-
-        if (!$encoded || !is_string($normalizedImage) || $normalizedImage === '') {
-            return ['status' => 'error', 'message' => 'An image could not be processed. Please try a different image.'];
-        }
-        if (strlen($normalizedImage) > QUESTION_IMAGE_FILE_LIMIT) {
-            return ['status' => 'error', 'message' => 'A processed image is too large. Choose a smaller image.'];
-        }
-
-        $images[] = [
-            'data' => $normalizedImage,
-            'mime_type' => 'image/webp',
-        ];
+        $images[] = normalize_image_data($contents, $mimeType, $width, $height, 2400);
     }
 
     return ['status' => 'images', 'images' => $images];

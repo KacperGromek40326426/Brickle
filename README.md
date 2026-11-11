@@ -1,29 +1,106 @@
 # Brickle
 
-A lightweight daily prompt website for a small group of friends. Each daily
-prompt is a brickle. Anyone can read today's brickle and its answers without
-an account, or browse the five most recent past brickles on **Brickles of the
-Yesterdays**. Visitors can answer with an optional display name; the
-administrator can schedule brickles and review all responses from a private
-admin area. Visitors may also register a profile with a username and optional
-picture; registered answers link to a public timeline and can build a streak.
-Signing in is optional, and signed-out visitors can continue to answer
-anonymously or with a display name.
+Brickle is a lightweight daily-question website for a small group of friends.
+Visitors can read and answer the daily question anonymously, with an alias, or
+using an optional account. Public profiles, answer timelines, streaks, recent
+past questions, image galleries, and the private administrator panel are
+implemented in native PHP. Static CSS and JavaScript are served directly from
+`assets/`; there is no frontend build step or runtime Node.js dependency.
 
-## Requirements
+## Hetzner konsoleH Webhosting S
 
-- PHP 8.1 or later
-- PDO SQLite (`pdo_sqlite`) and GD with WebP support enabled
-- A web host with PHP support; no Node.js, build step, or paid database required
+The shared-hosting deployment uses Apache-compatible PHP files and one
+database. It does not use Docker, a VPS, SSH, Node.js, a worker, or a required
+cron job. PHP 8.1 or later is supported by the application.
 
-## Local setup
+### PHP requirements
 
-### Run with Docker (recommended)
+Required:
 
-Install and start Docker Desktop, then open PowerShell in the project folder.
-The Compose setup serves the site only on your own computer at
-`http://localhost:8080`, and keeps its SQLite database in a persistent Docker
-volume outside the web root.
+- PHP 8.1 or later.
+- PDO and one available database driver:
+  - `pdo_mysql` for the MariaDB/MySQL database provided by the hosting plan; or
+  - `pdo_sqlite` if you have verified it is enabled and can provide writable
+    SQLite storage outside the public document root.
+- PHP sessions.
+
+Optional:
+
+- GD is used to resize and encode uploaded images as WebP when available.
+  Without GD or `imagewebp()`, Brickle safely stores and serves validated
+  JPEG, PNG, or WebP originals instead.
+- Fileinfo strengthens image MIME verification. If it is unavailable, image
+  signatures and dimensions are still checked using PHP's image inspection
+  functions.
+
+Brickle stores uploaded images as database blobs; it does not need writable
+public upload directories, ImageMagick, FFmpeg, or other server binaries. Image
+uploads are limited to 1 MB each, five files total, and 4 megapixels per image
+to fit shared-host memory limits.
+
+### Prepare configuration and setup token on Windows
+
+1. In konsoleH, create the plan's database and note the database name, user,
+   password, and host. Use the database host shown by Hetzner; do not assume it
+   is `localhost`.
+2. Copy `includes/config.example.php` to `includes/config.php`. Fill in the
+   database details. If using SQLite, set `storage_path` to an absolute,
+   PHP-writable path outside the public web root. The database credentials are private: do not
+   commit or share this file. The application's `.htaccess` denies HTTP access
+   to `includes/`. If Hetzner lets you store a configuration file outside the
+   web root, you can instead upload it as `brickle-config.php` next to the web
+   root; the application checks that location first.
+3. Generate the one-time setup token on your Windows computer, without PHP CLI
+   or Docker, using PowerShell from the project folder:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\Prepare-HetznerSetup.ps1
+   ```
+
+   Save the displayed token in a password manager. The script creates
+   `includes/setup-token.php`, which contains only its SHA-256 hash and is
+   excluded from Git. Never put the plaintext token in a URL or upload it.
+4. Upload the site files by SFTP to the domain's document root. Upload
+   `index.php`, `image.php`, `install.php`, `.htaccess`, `assets/`, and
+   `includes/` (including your private `config.php` and generated
+   `setup-token.php`). Do not upload `.env`, `Dockerfile`, Docker Compose files,
+   `docker/`, `tools/`, or the local-only `includes/config.local.php`. Ensure
+   Hetzner's Apache rules honor `.htaccess`.
+5. Open `https://your-domain.example/install.php`, enter the token, and create
+   the administrator password (14-128 characters). The application creates
+   its schema and admin atomically. On success it records a permanent
+   completion marker and removes the server's setup-token hash file. Delete
+   the local `includes/setup-token.php` and discard the plaintext token.
+6. Visit the site and sign in through **Admin**. Keep HTTPS enabled.
+
+The app's default SQLite path is a private directory beside the project, but
+shared-host document-root layouts vary. The runtime verifies that SQLite
+storage is outside the public document root and writable. If you cannot
+provide that path, configure the Hetzner database using MySQL instead. The
+`includes/config.example.php` file shows the expected PDO DSN format.
+
+The CLI-only `setup.php` and `generate-setup-token.php` remain optional for
+hosts where PHP CLI is available. The shared-hosting flow above does not
+depend on either command.
+
+### Database backups and restore
+
+No background backup process is required for the site to operate. Use
+Hetzner's hosting backup facilities and periodically export the database using
+the database administration tool provided in konsoleH (commonly phpMyAdmin).
+Download the backup to a separate, private location before application
+upgrades.
+
+For a MySQL/MariaDB backup, export the Brickle database as SQL from the
+database administration tool. To restore, create/select the target database
+and import the saved SQL file. For SQLite, download the private database file
+only when no Brickle requests are writing to it; keep the file outside the web
+root. Never place backups under the public document root.
+
+## Local development with Docker
+
+Docker is an optional local development convenience only; it is not part of
+the Hetzner deployment.
 
 ```powershell
 docker compose build
@@ -31,147 +108,57 @@ docker compose run --rm --user www-data -it web php setup.php
 docker compose up -d
 ```
 
-Enter the administrator email when prompted, then save the one-time password
-printed in the terminal. The setup command runs as the same unprivileged user
-as the web server so both can access the database. Open `http://localhost:8080`
-and choose **Admin** to sign in. The generated Compose configuration disables
-secure cookies only for this local HTTP setup; do not use that setting for a
-public HTTPS deployment.
+Open `http://localhost:8080`. Local Compose stores the SQLite database in a
+persistent Docker volume and disables secure cookies only for local HTTP.
+Stop the service with `docker compose down`; the volume remains. Do not use
+the local HTTP cookie setting in production.
 
-To stop the local server, run `docker compose down`. Your database remains in
-the `quiz_data` Docker volume, so starting the server again with
-`docker compose up -d` keeps your brickles and answers. To change the daily
-cutoff timezone, create a `.env` file next to `docker-compose.yml` with, for
-example, `APP_TIMEZONE=Europe/London`.
+## Security and operations
 
-### Docker deployment behind a TLS reverse proxy
+- The browser installer requires HTTPS, CSRF protection, a 256-bit one-time
+  token, and no existing administrator. Admin creation and the persistent
+  setup-completion marker are committed in one database transaction. The
+  endpoint is disabled after successful setup.
+- The database's schema is initialized once and versioned. SQL values use PDO
+  prepared statements. Admin and user passwords use PHP password hashing.
+- Sessions use strict mode, HTTP-only and same-site cookies, and Secure cookies
+  by default. CSP, HSTS, no-sniff, frame-denial, and private/no-store response
+  headers are enabled.
+- `.htaccess` blocks access to private application files, setup scripts,
+  configuration, database files, local tooling, and hidden files. Keep the
+  private config/database outside the document root wherever the host permits
+  it, and verify `.htaccess` is active.
+- PHP error display is disabled for web requests. Failures are logged
+  server-side and return a generic message, except safe database/extension/
+  storage setup diagnostics.
+- Answer forms have CSRF checks, validation, a session cooldown, and a
+  persistent per-address rate limit. Admin and user login attempts are rate
+  limited. Client IPs are stored only as keyed hashes for rate limiting.
+- Admins can schedule and edit daily questions and review all answers.
+  Question images are private in the database and served through an access
+  checked PHP endpoint. Registered users can change their password and profile;
+  their usernames, pictures, and registered answers are public.
+- Use a production timezone in `includes/config.php`; the default is UTC.
 
-The default `docker-compose.yml` is deliberately local-only: it bind-mounts the
-working tree, binds to loopback, and disables secure cookies for HTTP
-development. For a self-managed host, build and run the production Compose file
-instead:
+## Troubleshooting
 
-```powershell
-docker compose -f docker-compose.production.yml build
-docker compose -f docker-compose.production.yml run --rm --user www-data -it web php setup.php
-docker compose -f docker-compose.production.yml up -d
-```
+| Symptom | Check |
+|---|---|
+| "No usable database is configured" | Enable `pdo_sqlite`, or configure the database DSN, host, user, and password in `includes/config.php`. |
+| "Configured PDO database driver is unavailable" | Enable `pdo_mysql` for a MySQL DSN or `pdo_sqlite` for SQLite in the PHP settings. |
+| Database connection failure | Verify the database exists, credentials and host are exact, and the user has permission to create/alter tables and read/write rows. Check the hosting PHP error log for details. |
+| SQLite private-directory error | Set `storage_path` to an absolute writable directory outside the web root. Prefer the hosting account's private directory, not `public_html`. |
+| Installer says setup token is not configured | Upload the generated `includes/setup-token.php`; do not rename or edit it. |
+| Installer unavailable or returns 404 after setup | Setup is permanently complete. Sign in at `index.php?page=admin`; do not recreate or re-upload a setup token. |
+| Image upload is rejected | Use JPEG, PNG, or WebP under 1 MB and no larger than 4 megapixels. The PHP upload limit must be at least 1 MB, `max_file_uploads` at least 5, and `post_max_size` at least 6 MB for multipart overhead. |
+| Image upload works but looks larger | Without GD and WebP support, Brickle stores the validated original image rather than resizing/encoding it. |
+| Setup cannot create tables | Check that the database account has DDL permissions (`CREATE`, `ALTER`, and `INDEX`) as well as read/write permissions. |
+| `.htaccess` rules appear ignored | Confirm the domain uses Apache-compatible configuration and that Hetzner allows `.htaccess` overrides. Contact support if protected paths are served directly. |
 
-This image contains only the runtime PHP files and serves on
-`127.0.0.1:8081`; put it behind a reverse proxy that handles HTTPS and redirects
-HTTP to HTTPS. Do not expose the container directly to the public internet over
-plain HTTP. Configure the web server so PHP's `REMOTE_ADDR` is the actual
-client address, or a trusted-proxy-aware address; do not trust a
-user-supplied forwarding header. The image disables PHP error display and sends
-error logs to the container's standard error output. Check your host's container
-logging and rotation policy, and restrict access to those logs.
+## Existing features
 
-The named `production_quiz_data` volume persists the database and rate-limiting
-secret. Create a private backup directory on the host, outside the web root,
-then create a consistent, integrity-checked SQLite snapshot with:
-
-```sh
-export BRICKLE_BACKUP_DIR=/srv/backups/brickle
-sh docker/backup.sh
-```
-
-The script requires the production Compose service to be running and writes
-timestamped backups with owner-only permissions. Schedule it daily with the
-host's cron (adjust the repository path) or task scheduler:
-
-```cron
-0 3 * * * BRICKLE_BACKUP_DIR=/srv/backups/brickle /bin/sh /path/to/Brickle/docker/backup.sh
-```
-
-Monitor failures, and copy encrypted backups to storage outside the server.
-Periodically test restoring a backup to a separate test database before
-depending on it. Keep an appropriate retention policy; never put backups in
-the public document root or commit them to this repository.
-
-In the admin panel, schedule brickles for today or a future date. The daily
-lineup shows upcoming, today's, and past brickles; edit one to change its
-prompt without changing its date. Use **Delete**, then confirm, to permanently
-remove a brickle and all of its answers.
-
-### Run with a local PHP installation
-
-1. Point a PHP-enabled web server's document root at this project folder.
-2. Make sure PHP can create and write to the private directory beside the
-   project folder. Alternatively, set `PRIVATE_STORAGE_PATH` to a writable
-   directory **outside** the document root.
-3. Set `APP_TIMEZONE` to the timezone used to decide when a new daily brickle
-   starts (for example, `Europe/London`). The default is `UTC`.
-4. Run `php setup.php` from a terminal. Enter the administrator's email address.
-   The command creates the SQLite database and prints a one-time generated
-   password. Save it securely; the admin can change it after signing in.
-5. Visit the site's homepage and sign in at **Admin**.
-
-The database schema is created automatically. The `setup.php` command is
-terminal-only and refuses to create another administrator if one already
-exists. For a PHP development server, set `APP_SECURE_COOKIES=0` in the local
-environment, run `php -S 127.0.0.1:8000` from the project folder, and open
-`http://127.0.0.1:8000`.
-
-## Hosting and security
-
-- Enable HTTPS and an HTTP-to-HTTPS redirect in the hosting control panel
-  before collecting real responses. Secure session cookies and HSTS are enabled
-  by default; set `APP_SECURE_COOKIES=0` only for local HTTP development. Do
-  not rely on a user-controlled proxy header to determine whether a request is
-  secure.
-- The default SQLite directory is outside the project folder. If you set
-  `PRIVATE_STORAGE_PATH`, point it outside the public document root. The
-  included Apache rules also deny web access to the project `storage/` and
-  `includes/` folders; verify that your host honors `.htaccess`.
-- Configure the host to run a supported PHP version and enable `pdo_sqlite`.
-  Enable GD with WebP support and set PHP upload limits to at least
-  `upload_max_filesize=2M`, `post_max_size=12M`, and `max_file_uploads=5` for
-  image uploads. Restrict write access to the database directory to the PHP
-  account, and schedule and verify regular backups using the procedure above.
-- The production Docker image disables PHP error display, enables error
-  logging, and directs errors to container standard error. For non-Docker hosts,
-  disable PHP error display and enable server-side error logging explicitly.
-  Keep the database and session files out of public backups and web-accessible
-  directories.
-- Set a production timezone explicitly. The application stores brickle dates and
-  timestamps using that timezone.
-- Answers are displayed publicly. Do not ask visitors to include sensitive
-  personal information. The app stores keyed hashes of client IP addresses,
-  not raw addresses, for rate limiting; old rate-limit records are removed
-  after 24 hours.
-- User accounts do not require or collect email addresses. Passwords are
-  stored as password hashes; users can change their password while signed in,
-  but there is no password-reset or account-deletion flow. Usernames, uploaded
-  profile pictures, registered answers, and public timelines are visible to
-  everyone, including the administrator. Registered users can answer each
-  brickle once. A streak counts consecutive posted brickles answered and
-  resets when a posted brickle is skipped; dates without a posted brickle do
-  not count.
-- The public form has CSRF protection, output escaping, input limits, a
-  per-session cooldown, and a persistent limit of 10 answers per client address
-  per minute. Admin sign-in attempts are limited to 5 per email/address pair
-  per 10 minutes and 30 per client address per 15 minutes. These controls
-  reduce abuse but are not a substitute for host-level firewall/WAF limits,
-  backups, HTTPS, and keeping PHP current.
-- Admins can add up to five JPEG, PNG, or WebP images per brickle (2 MB each).
-  Images are decoded and re-encoded as WebP before being saved with the brickle
-  in SQLite. Visitors can slide through today's images and images on the five
-  most recent past brickles; older brickle images are only served to the
-  signed-in administrator.
-- The admin editor includes a live visitor-perspective preview of the brickle
-  prompt, scheduled date, and selected images before saving.
-
-## Configuration
-
-Set these variables in the hosting provider's environment configuration. A
-`.env.example` is included as a reference; the application does not load `.env`
-files itself.
-
-- `APP_TIMEZONE` — PHP timezone identifier; defaults to `UTC`.
-- `APP_SECURE_COOKIES` — set to `0` only for local HTTP development; defaults
-  to `1`.
-- `PRIVATE_STORAGE_PATH` — optional absolute path to the private SQLite
-  database directory; defaults to `brickle-private-storage/` beside this
-  project.
-
-No third-party runtime packages or external fonts/scripts are used.
+The public daily question and answers, anonymous/alias posting, optional
+accounts, profile pictures, public answer timelines, streaks, recent-question
+archive, question image galleries, responsive UI, and Easter egg remain part of
+the application. No Node package manager, Composer package, or external
+runtime service is required.

@@ -8,7 +8,35 @@ Options -Indexes
     Require all denied
 </Files>
 
+<Files "generate-setup-token.php">
+    Require all denied
+</Files>
+
+<Files "setup-token.php">
+    Require all denied
+</Files>
+
+<Files "config.php">
+    Require all denied
+</Files>
+
+<FilesMatch "^(?:Dockerfile|docker-compose(?:\.production)?\.yml|README\.md|\.env(?:\..*)?)$">
+    Require all denied
+</FilesMatch>
+
+<FilesMatch "\.(sqlite|sqlite-[^/]+|db)$">
+    Require all denied
+</FilesMatch>
+
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteRule ^(?:includes|storage|\.git)(?:/|$) - [F,END]
+    RewriteRule ^(?:includes|storage|docker|tools|tests|brickle-private-storage|\.git)(?:/|$) - [F,END]
+</IfModule>
+
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 1 hour"
+    ExpiresByType application/javascript "access plus 1 hour"
+    ExpiresByType image/png "access plus 1 hour"
+    ExpiresByType image/svg+xml "access plus 1 hour"
 </IfModule>

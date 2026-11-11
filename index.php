@@ -77,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash($avatarUpload['message'], 'error');
             redirect('index.php?page=account&mode=register');
         }
-        $statement = $database->prepare('SELECT id FROM users WHERE username = :username COLLATE NOCASE');
+        $statement = $database->prepare('SELECT id FROM users WHERE username = :username');
         $statement->execute(['username' => $username]);
         if ($statement->fetch()) {
             flash('That username is already taken. Choose another one.', 'error');
@@ -85,18 +85,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $statement = $database->prepare(
-            'INSERT INTO users (username, password_hash, avatar_data, created_at, updated_at)
-             VALUES (:username, :password_hash, :avatar_data, :created_at, :updated_at)'
+            'INSERT INTO users (username, password_hash, avatar_data, avatar_mime_type, created_at, updated_at)
+             VALUES (:username, :password_hash, :avatar_data, :avatar_mime_type, :created_at, :updated_at)'
         );
         $statement->bindValue(':username', $username, PDO::PARAM_STR);
         $statement->bindValue(':password_hash', password_hash($password, PASSWORD_DEFAULT), PDO::PARAM_STR);
         $statement->bindValue(':avatar_data', $avatarUpload['data'] ?? null, $avatarUpload['status'] === 'image' ? PDO::PARAM_LOB : PDO::PARAM_NULL);
+        $statement->bindValue(':avatar_mime_type', $avatarUpload['mime_type'] ?? null, $avatarUpload['status'] === 'image' ? PDO::PARAM_STR : PDO::PARAM_NULL);
         $statement->bindValue(':created_at', date('c'), PDO::PARAM_STR);
         $statement->bindValue(':updated_at', date('c'), PDO::PARAM_STR);
         try {
             $statement->execute();
         } catch (PDOException $exception) {
-            if ($exception->getCode() !== '23000' || !str_contains($exception->getMessage(), 'users.username')) {
+            if ($exception->getCode() !== '23000') {
                 throw $exception;
             }
             flash('That username is already taken. Choose another one.', 'error');
@@ -132,7 +133,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $user = false;
         if (valid_username($username) && strlen($password) <= 128) {
             $statement = $database->prepare(
-                'SELECT id, username, password_hash FROM users WHERE username = :username COLLATE NOCASE'
+                'SELECT id, username, password_hash FROM users WHERE username = :username'
             );
             $statement->execute(['username' => $username]);
             $user = $statement->fetch();
@@ -188,7 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             redirect('index.php?page=account');
         }
 
-        $statement = $database->prepare('SELECT id FROM users WHERE username = :username COLLATE NOCASE AND id != :id');
+        $statement = $database->prepare('SELECT id FROM users WHERE username = :username AND id != :id');
         $statement->execute(['username' => $username, 'id' => (int) $_SESSION['user_id']]);
         if ($statement->fetch()) {
             flash('That username is already taken. Choose another one.', 'error');
@@ -197,12 +198,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($avatarUpload['status'] === 'image') {
             $statement = $database->prepare(
-                'UPDATE users SET username = :username, avatar_data = :avatar_data, updated_at = :updated_at WHERE id = :id'
+                'UPDATE users SET username = :username, avatar_data = :avatar_data, avatar_mime_type = :avatar_mime_type, updated_at = :updated_at WHERE id = :id'
             );
             $statement->bindValue(':avatar_data', $avatarUpload['data'], PDO::PARAM_LOB);
+            $statement->bindValue(':avatar_mime_type', $avatarUpload['mime_type'], PDO::PARAM_STR);
         } elseif ($removeAvatar) {
             $statement = $database->prepare(
-                'UPDATE users SET username = :username, avatar_data = NULL, updated_at = :updated_at WHERE id = :id'
+                'UPDATE users SET username = :username, avatar_data = NULL, avatar_mime_type = NULL, updated_at = :updated_at WHERE id = :id'
             );
         } else {
             $statement = $database->prepare(
@@ -215,7 +217,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             $statement->execute();
         } catch (PDOException $exception) {
-            if ($exception->getCode() !== '23000' || !str_contains($exception->getMessage(), 'users.username')) {
+            if ($exception->getCode() !== '23000') {
                 throw $exception;
             }
             flash('That username is already taken. Choose another one.', 'error');
@@ -535,12 +537,12 @@ $publicAnswers = [];
 $publicStreaks = [];
 if ($todayQuestion) {
     $statement = $database->prepare(
-        'SELECT a.user_id, COALESCE(u.username, a.display_name, "Anonymous") AS display_name,
+        "SELECT a.user_id, COALESCE(u.username, a.display_name, 'Anonymous') AS display_name,
             (u.avatar_data IS NOT NULL) AS has_avatar, a.answer, a.created_at
          FROM answers a
          LEFT JOIN users u ON u.id = a.user_id
          WHERE a.question_id = :question_id
-         ORDER BY a.created_at ASC, a.id ASC'
+         ORDER BY a.created_at ASC, a.id ASC"
     );
     $statement->execute(['question_id' => (int) $todayQuestion['id']]);
     $publicAnswers = $statement->fetchAll();
@@ -575,13 +577,13 @@ if ($isYesterdaysPage) {
     if ($pastBrickles) {
         $placeholders = implode(',', array_fill(0, count($pastBrickles), '?'));
         $statement = $database->prepare(
-            'SELECT a.question_id, a.user_id,
-                COALESCE(u.username, a.display_name, "Anonymous") AS display_name,
+            "SELECT a.question_id, a.user_id,
+                COALESCE(u.username, a.display_name, 'Anonymous') AS display_name,
                 (u.avatar_data IS NOT NULL) AS has_avatar, a.answer, a.created_at
              FROM answers a
              LEFT JOIN users u ON u.id = a.user_id
-             WHERE a.question_id IN (' . $placeholders . ')
-             ORDER BY a.created_at ASC, a.id ASC'
+             WHERE a.question_id IN (" . $placeholders . ")
+             ORDER BY a.created_at ASC, a.id ASC"
         );
         $statement->execute(array_keys($pastBrickles));
         $pastAnswers = $statement->fetchAll();
@@ -696,15 +698,15 @@ if ($isAdminPage && is_admin()) {
     }
 
     $rows = $database->query(
-        'SELECT q.id, q.quiz_date, q.prompt,
+        "SELECT q.id, q.quiz_date, q.prompt,
             (SELECT COUNT(*) FROM question_image_gallery qi WHERE qi.question_id = q.id) AS image_count,
-            a.user_id, COALESCE(u.username, a.display_name, "Anonymous") AS display_name,
+            a.user_id, COALESCE(u.username, a.display_name, 'Anonymous') AS display_name,
             (u.avatar_data IS NOT NULL) AS has_avatar,
             a.answer, a.created_at AS answer_created_at
          FROM questions q
          LEFT JOIN answers a ON a.question_id = q.id
          LEFT JOIN users u ON u.id = a.user_id
-         ORDER BY q.quiz_date DESC, a.created_at ASC, a.id ASC'
+         ORDER BY q.quiz_date DESC, a.created_at ASC, a.id ASC"
     )->fetchAll();
     foreach ($rows as $row) {
         $id = (int) $row['id'];
@@ -820,7 +822,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                     <span class="muted form-hint">3-24 letters, numbers, or underscores. Your username and answers are visible to everyone.</span>
                     <label for="register_password">Password</label>
                     <input id="register_password" name="password" type="password" minlength="14" maxlength="128" autocomplete="new-password" required>
-                    <label for="register_avatar">Profile picture <span class="label-optional">optional · JPEG, PNG, or WebP · 2 MB max</span></label>
+                    <label for="register_avatar">Profile picture <span class="label-optional">optional · JPEG, PNG, or WebP · 1 MB max</span></label>
                     <input id="register_avatar" name="avatar" type="file" accept="image/jpeg,image/png,image/webp">
                     <button class="button button-primary" type="submit">Create profile <span aria-hidden="true">→</span></button>
                 </form>
@@ -859,7 +861,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                     <input type="hidden" name="action" value="update_user_profile">
                     <label for="profile_username">Username</label>
                     <input id="profile_username" name="username" type="text" minlength="3" maxlength="24" pattern="[A-Za-z0-9_]{3,24}" value="<?= e($accountUser['username']) ?>" autocomplete="username" required>
-                    <label for="profile_avatar">Change profile picture <span class="label-optional">optional · JPEG, PNG, or WebP · 2 MB max</span></label>
+                    <label for="profile_avatar">Change profile picture <span class="label-optional">optional · JPEG, PNG, or WebP · 1 MB max</span></label>
                     <input id="profile_avatar" name="avatar" type="file" accept="image/jpeg,image/png,image/webp">
                     <?php if (!empty($accountUser['has_avatar'])): ?>
                         <label class="remove-image-label"><input name="remove_avatar" type="checkbox" value="1"> Remove current profile picture</label>
@@ -982,7 +984,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                     <?php endif; ?>
                     <label for="prompt">Your brickle prompt</label>
                     <textarea id="prompt" name="prompt" rows="4" maxlength="240" data-question-prompt placeholder="What's something small that made you happy today?" required><?= e($editQuestion['prompt'] ?? '') ?></textarea>
-                    <label for="question_images">Brickle images <span class="label-optional">optional · up to 5 total · JPEG, PNG, or WebP · 2 MB each</span></label>
+                    <label for="question_images">Brickle images <span class="label-optional">optional · up to 5 total · JPEG, PNG, or WebP · 1 MB each</span></label>
                     <input id="question_images" name="question_images[]" type="file" accept="image/jpeg,image/png,image/webp" multiple data-question-images>
                     <?php if ($editQuestion && $editQuestion['images']): ?>
                         <div class="existing-images">
@@ -998,7 +1000,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                             <?php endforeach; ?>
                         </div>
                     <?php endif; ?>
-                    <p class="muted image-help">Choose up to 5 images total (2 MB each). New images are added after current images; select any current images you want to remove.</p>
+                    <p class="muted image-help">Choose up to 5 images total (1 MB each). New images are added after current images; select any current images you want to remove.</p>
                     <details class="visitor-preview" data-question-preview>
                         <summary class="button button-secondary">Preview as a visitor</summary>
                         <div class="preview-content">

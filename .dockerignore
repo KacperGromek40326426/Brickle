@@ -2,6 +2,10 @@
 .env
 .env.*
 !.env.example
+includes/setup-token.php
+includes/config.php
+includes/config.local.php
+brickle-config.php
 brickle-private-storage
 storage
 *.sqlite

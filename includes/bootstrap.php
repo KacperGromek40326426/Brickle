@@ -1,13 +1,82 @@
 <?php
 declare(strict_types=1);
 
-$timezone = getenv('APP_TIMEZONE');
-if ($timezone === false || $timezone === '') {
+if (PHP_SAPI !== 'cli') {
+    ini_set('display_errors', '0');
+    ini_set('display_startup_errors', '0');
+    ini_set('log_errors', '1');
+    set_exception_handler(static function (Throwable $exception): void {
+        error_log('Brickle request failed: ' . get_class($exception) . ': ' . $exception->getMessage());
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: text/plain; charset=utf-8');
+            header('Cache-Control: no-store, private');
+        }
+        $message = 'Brickle is temporarily unavailable. Check the hosting configuration and server error log.';
+        if ($exception instanceof RuntimeException) {
+            foreach ([
+                'PHP PDO is required.',
+                'The configured PDO database driver is unavailable.',
+                'No usable database is configured.',
+                'Configure PDO SQLite or MySQL for this application.',
+                'PHP sessions are required.',
+                'The PHP session could not be started.',
+                'The configured Brickle database could not be reached.',
+                'The private SQLite directory',
+                'The public document root or private SQLite directory',
+            ] as $safePrefix) {
+                if (str_starts_with($exception->getMessage(), $safePrefix)) {
+                    $message = $exception->getMessage();
+                    http_response_code(503);
+                    break;
+                }
+            }
+        }
+        echo $message;
+    });
+}
+
+$configPath = getenv('BRICKLE_CONFIG_PATH');
+if ($configPath === false || $configPath === '') {
+    $externalConfigPath = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'brickle-config.php';
+    $localConfigPath = __DIR__ . DIRECTORY_SEPARATOR . 'config.php';
+    $configPath = is_file($externalConfigPath) ? $externalConfigPath : $localConfigPath;
+} elseif (!is_file($configPath)) {
+    throw new RuntimeException('The configured Brickle settings file could not be found.');
+}
+$appConfig = [];
+if (is_file($configPath)) {
+    $loadedConfig = require $configPath;
+    if (!is_array($loadedConfig)) {
+        throw new RuntimeException('The Brickle configuration file must return an array.');
+    }
+    $appConfig = $loadedConfig;
+}
+
+$timezone = $appConfig['timezone'] ?? getenv('APP_TIMEZONE');
+if (!is_string($timezone) || $timezone === '') {
     $timezone = 'UTC';
 }
-date_default_timezone_set($timezone);
+try {
+    date_default_timezone_set($timezone);
+} catch (ValueError $exception) {
+    throw new RuntimeException('The configured application timezone is invalid.', 0, $exception);
+}
 
-$secureCookies = getenv('APP_SECURE_COOKIES') !== '0';
+$secureCookies = ($appConfig['secure_cookies'] ?? null) !== false && getenv('APP_SECURE_COOKIES') !== '0';
+if (!extension_loaded('session')) {
+    throw new RuntimeException('PHP sessions are required. Enable the session extension in the hosting control panel.');
+}
+if (PHP_SAPI !== 'cli' && $secureCookies) {
+    $httpsValue = strtolower((string) ($_SERVER['HTTPS'] ?? ''));
+    $isHttps = in_array($httpsValue, ['on', '1'], true)
+        || (string) ($_SERVER['SERVER_PORT'] ?? '') === '443';
+    if (!$isHttps) {
+        http_response_code(403);
+        header('Content-Type: text/plain; charset=utf-8');
+        exit('Brickle is available only over HTTPS.');
+    }
+}
 ini_set('session.use_strict_mode', '1');
 ini_set('session.use_only_cookies', '1');
 ini_set('session.cookie_httponly', '1');
@@ -19,7 +88,9 @@ session_set_cookie_params([
     'httponly' => true,
     'samesite' => 'Lax',
 ]);
-session_start();
+if (!session_start()) {
+    throw new RuntimeException('The PHP session could not be started. Check the hosting session configuration.');
+}
 
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
@@ -31,130 +102,107 @@ if ($secureCookies) {
     header('Strict-Transport-Security: max-age=31536000');
 }
 
-$storagePath = getenv('PRIVATE_STORAGE_PATH');
-if ($storagePath === false || $storagePath === '') {
-    $storagePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'brickle-private-storage';
+$databaseConfig = is_array($appConfig['database'] ?? null) ? $appConfig['database'] : [];
+$dsn = getenv('BRICKLE_DB_DSN');
+if (!is_string($dsn) || $dsn === '') {
+    $dsn = $databaseConfig['dsn'] ?? '';
 }
-$storageExists = is_dir($storagePath);
-if (!$storageExists) {
-    if (!mkdir($storagePath, 0700, true) && !is_dir($storagePath)) {
-        throw new RuntimeException('The private database directory could not be created.');
-    }
+if (!is_string($dsn)) {
+    throw new RuntimeException('The Brickle database DSN must be a string.');
 }
-if (!is_writable($storagePath)) {
-    throw new RuntimeException('The private database directory is not writable by PHP.');
+$databaseUser = getenv('BRICKLE_DB_USER');
+if (!is_string($databaseUser) || $databaseUser === '') {
+    $databaseUser = $databaseConfig['username'] ?? null;
+}
+$databasePassword = getenv('BRICKLE_DB_PASSWORD');
+if (!is_string($databasePassword)) {
+    $databasePassword = $databaseConfig['password'] ?? null;
 }
 
-$databasePath = rtrim($storagePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'quiz.sqlite';
-$databaseExists = is_file($databasePath);
-$database = new PDO('sqlite:' . $databasePath);
-if (!$databaseExists && DIRECTORY_SEPARATOR === '/' && !chmod($databasePath, 0600)) {
-    throw new RuntimeException('The database file permissions could not be secured.');
+$storagePath = $appConfig['storage_path'] ?? getenv('PRIVATE_STORAGE_PATH');
+if (!is_string($storagePath) || $storagePath === '') {
+    $storagePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'brickle-private-storage';
+}
+
+function ensure_private_storage_directory(string $path): void
+{
+    if (!is_dir($path) && !mkdir($path, 0700, true) && !is_dir($path)) {
+        throw new RuntimeException('The private SQLite directory could not be created.');
+    }
+    if (!is_writable($path)) {
+        throw new RuntimeException('The private SQLite directory is not writable by PHP.');
+    }
+
+    if (PHP_SAPI === 'cli') {
+        return;
+    }
+
+    $documentRoot = realpath((string) ($_SERVER['DOCUMENT_ROOT'] ?? ''));
+    $resolvedPath = realpath($path);
+    if ($documentRoot === false || $resolvedPath === false) {
+        throw new RuntimeException('The public document root or private SQLite directory could not be resolved.');
+    }
+    $documentRoot = rtrim($documentRoot, DIRECTORY_SEPARATOR);
+    $documentRoot = $documentRoot === '' ? DIRECTORY_SEPARATOR : $documentRoot;
+    $storageIsPublic = $documentRoot === DIRECTORY_SEPARATOR
+        ? str_starts_with($resolvedPath, DIRECTORY_SEPARATOR)
+        : ($resolvedPath === $documentRoot
+            || str_starts_with($resolvedPath, $documentRoot . DIRECTORY_SEPARATOR));
+    if ($storageIsPublic) {
+        throw new RuntimeException('The private SQLite directory must be outside the public document root.');
+    }
+}
+
+if (!class_exists(PDO::class)) {
+    throw new RuntimeException('PHP PDO is required. Enable the PDO extension in the hosting control panel.');
+}
+
+if (is_string($dsn) && $dsn !== '') {
+    $driver = strtolower(strtok($dsn, ':') ?: '');
+    if (!in_array($driver, PDO::getAvailableDrivers(), true)) {
+        throw new RuntimeException(
+            'The configured PDO database driver is unavailable. Enable pdo_' . $driver . ' or configure another supported database.'
+        );
+    }
+    if ($driver === 'sqlite') {
+        ensure_private_storage_directory($storagePath);
+        $databasePath = rtrim($storagePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'quiz.sqlite';
+        if (!str_contains($dsn, ':memory:') && !str_contains($dsn, $databasePath)) {
+            throw new RuntimeException('SQLite must use the configured private storage directory.');
+        }
+        $dsn = 'sqlite:' . $databasePath;
+    } elseif ($driver !== 'mysql') {
+        throw new RuntimeException('Configure PDO SQLite or MySQL for this application.');
+    }
+} else {
+    $availableDrivers = PDO::getAvailableDrivers();
+    if (in_array('sqlite', $availableDrivers, true)) {
+        ensure_private_storage_directory($storagePath);
+        $dsn = 'sqlite:' . rtrim($storagePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'quiz.sqlite';
+    } else {
+        throw new RuntimeException(
+            'No usable database is configured. Enable pdo_sqlite or provide MySQL PDO connection settings in the private Brickle configuration.'
+        );
+    }
+}
+
+try {
+    $database = new PDO($dsn, is_string($databaseUser) ? $databaseUser : null, is_string($databasePassword) ? $databasePassword : null);
+} catch (PDOException $exception) {
+    throw new RuntimeException('The configured Brickle database could not be reached. Check the private database settings.', 0, $exception);
 }
 $database->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $database->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-$database->exec('PRAGMA foreign_keys = ON');
-$database->exec('PRAGMA busy_timeout = 5000');
-$database->exec(
-    'CREATE TABLE IF NOT EXISTS admins (
-        id INTEGER PRIMARY KEY,
-        email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-        password_hash TEXT NOT NULL,
-        created_at TEXT NOT NULL
-    )'
-);
-$database->exec(
-    'CREATE TABLE IF NOT EXISTS questions (
-        id INTEGER PRIMARY KEY,
-        quiz_date TEXT NOT NULL UNIQUE,
-        prompt TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-    )'
-);
-$database->exec(
-    'CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY,
-        username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-        password_hash TEXT NOT NULL,
-        avatar_data BLOB,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-    )'
-);
-$database->exec(
-    'CREATE TABLE IF NOT EXISTS answers (
-        id INTEGER PRIMARY KEY,
-        question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
-        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-        display_name TEXT,
-        answer TEXT NOT NULL,
-        created_at TEXT NOT NULL
-    )'
-);
-$answerColumns = $database->query('PRAGMA table_info(answers)')->fetchAll();
-if (!in_array('user_id', array_column($answerColumns, 'name'), true)) {
-    $database->exec('ALTER TABLE answers ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE SET NULL');
+if ($database->getAttribute(PDO::ATTR_DRIVER_NAME) === 'sqlite') {
+    $databasePath = rtrim($storagePath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'quiz.sqlite';
+    if (!is_file($databasePath) && DIRECTORY_SEPARATOR === '/' && !chmod($databasePath, 0600)) {
+        throw new RuntimeException('The SQLite database file permissions could not be secured.');
+    }
 }
-$database->exec(
-    'CREATE UNIQUE INDEX IF NOT EXISTS answers_user_question_unique_idx
-     ON answers(user_id, question_id) WHERE user_id IS NOT NULL'
-);
-$database->exec(
-    'CREATE TABLE IF NOT EXISTS question_images (
-        question_id INTEGER PRIMARY KEY REFERENCES questions(id) ON DELETE CASCADE,
-        image_data BLOB NOT NULL,
-        mime_type TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-    )'
-);
-$database->exec(
-    'CREATE TABLE IF NOT EXISTS question_image_gallery (
-        id INTEGER PRIMARY KEY,
-        question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
-        image_data BLOB NOT NULL,
-        mime_type TEXT NOT NULL,
-        sort_order INTEGER NOT NULL,
-        created_at TEXT NOT NULL,
-        UNIQUE (question_id, sort_order)
-    )'
-);
-$database->exec(
-    'INSERT OR IGNORE INTO question_image_gallery (question_id, image_data, mime_type, sort_order, created_at)
-     SELECT qi.question_id, qi.image_data, qi.mime_type, 0, qi.updated_at
-     FROM question_images qi
-     WHERE NOT EXISTS (
-        SELECT 1 FROM question_image_gallery qig WHERE qig.question_id = qi.question_id
-     )'
-);
-$database->exec(
-    'DELETE FROM question_images
-     WHERE question_id IN (SELECT DISTINCT question_id FROM question_image_gallery)'
-);
-$database->exec('CREATE INDEX IF NOT EXISTS answers_question_id_idx ON answers(question_id, created_at)');
-$database->exec('CREATE INDEX IF NOT EXISTS question_image_gallery_question_idx ON question_image_gallery(question_id, sort_order)');
-$database->exec(
-    'CREATE TABLE IF NOT EXISTS request_rate_limits (
-        bucket_hash TEXT NOT NULL,
-        occurred_at INTEGER NOT NULL
-    )'
-);
-$database->exec('CREATE INDEX IF NOT EXISTS request_rate_limits_bucket_idx ON request_rate_limits(bucket_hash, occurred_at)');
-$database->exec('CREATE INDEX IF NOT EXISTS request_rate_limits_expiry_idx ON request_rate_limits(occurred_at)');
-$database->exec(
-    'CREATE TABLE IF NOT EXISTS application_secrets (
-        secret_name TEXT PRIMARY KEY,
-        secret_value TEXT NOT NULL
-    )'
-);
-$secretStatement = $database->prepare(
-    'INSERT OR IGNORE INTO application_secrets (secret_name, secret_value)
-     VALUES (:secret_name, :secret_value)'
-);
-$secretStatement->execute([
-    'secret_name' => 'rate_limit_hmac',
-    'secret_value' => bin2hex(random_bytes(32)),
-]);
+
+require_once __DIR__ . '/schema.php';
+initialize_brickle_schema($database);
+
 $secretStatement = $database->prepare(
     'SELECT secret_value FROM application_secrets WHERE secret_name = :secret_name'
 );
