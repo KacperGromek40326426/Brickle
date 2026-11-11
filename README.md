@@ -5,7 +5,9 @@ Visitors can read and answer the daily question anonymously, with an alias, or
 using an optional account. Public profiles, answer timelines, streaks, recent
 past questions, image galleries, and the private administrator panel are
 implemented in native PHP. Static CSS and JavaScript are served directly from
-`assets/`; there is no frontend build step or runtime Node.js dependency.
+`assets/`; there is no frontend build step or runtime Node.js dependency. The
+root page introduces Brickle, with the daily question and its answers available
+from the top navigation and landing-page button.
 
 ## Hetzner konsoleH Webhosting S
 

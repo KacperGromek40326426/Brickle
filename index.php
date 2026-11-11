@@ -5,7 +5,9 @@ require __DIR__ . '/includes/bootstrap.php';
 require __DIR__ . '/includes/functions.php';
 require __DIR__ . '/includes/images.php';
 
-$page = $_GET['page'] ?? 'home';
+$page = $_GET['page'] ?? 'landing';
+$isLandingPage = $page === 'landing';
+$isTodayPage = $page === 'today';
 $isAdminPage = $page === 'admin';
 $isYesterdaysPage = $page === 'yesterdays';
 
@@ -455,28 +457,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if ($lastAnswer > time() - 15) {
             flash('Please wait a moment before sending another answer.', 'error');
-            redirect('index.php#answer');
+            redirect('index.php?page=today#answer');
         }
         if (!ctype_digit($questionId) || $answer === '' || strlen($answer) > 4800) {
             flash('Write an answer of up to 1,200 characters.', 'error');
-            redirect('index.php#answer');
+            redirect('index.php?page=today#answer');
         }
         if ($userId === null && strlen($displayName) > 128) {
             flash('Your display name must be 32 characters or fewer.', 'error');
-            redirect('index.php#answer');
+            redirect('index.php?page=today#answer');
         }
 
         $statement = $database->prepare('SELECT id FROM questions WHERE id = :id AND quiz_date = :quiz_date');
         $statement->execute(['id' => (int) $questionId, 'quiz_date' => date('Y-m-d')]);
         if (!$statement->fetch()) {
             flash("Today's brickle is no longer available.", 'error');
-            redirect('index.php');
+            redirect('index.php?page=today');
         }
 
         $answerBucket = client_rate_limit_bucket($rateLimitSecret, 'public-answer');
         if (!consume_rate_limit($database, $answerBucket, 10, 60)) {
             flash('Too many answers were sent from this connection. Please try again in a minute.', 'error');
-            redirect('index.php#answer');
+            redirect('index.php?page=today#answer');
         }
 
         if ($userId !== null) {
@@ -489,7 +491,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             if ($statement->fetch()) {
                 flash("You have already answered today's brickle.", 'error');
-                redirect('index.php#answer');
+                redirect('index.php?page=today#answer');
             }
         }
 
@@ -510,11 +512,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw $exception;
             }
             flash("You have already answered today's brickle.", 'error');
-            redirect('index.php#answer');
+            redirect('index.php?page=today#answer');
         }
         $_SESSION['last_answer_at'] = time();
         flash('Thanks for sharing your answer!');
-        redirect('index.php#answers');
+        redirect('index.php?page=today#answers');
     }
 
     flash('That action was not recognized.', 'error');
@@ -757,13 +759,20 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#101119">
-    <title><?= $isAdminPage
+    <?php if ($isLandingPage): ?>
+        <meta name="description" content="Brickle gives your friends one question to answer each day. Share your take, see everyone's answers, and keep the conversation going.">
+    <?php endif; ?>
+    <title><?= $isLandingPage
+        ? 'About Brickle'
+        : ($isTodayPage
+            ? 'Brickle of the Day'
+            : ($isAdminPage
         ? 'Admin · Brickle of the Day'
         : ($isYesterdaysPage
             ? 'Brickles of the Yesterdays · Brickle of the Day'
             : ($isAccountPage
                 ? 'Account · Brickle of the Day'
-                : ($isProfilePage && $profileUser ? e($profileUser['username']) . ' · Brickle' : 'Brickle of the Day'))) ?></title>
+                : ($isProfilePage && $profileUser ? e($profileUser['username']) . ' · Brickle' : 'Brickle of the Day'))))) ?></title>
     <link rel="stylesheet" href="assets/styles.css">
     <script src="assets/app.js" defer></script>
 </head>
@@ -771,7 +780,8 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
 <header class="site-header">
     <a class="brand" href="index.php"><span class="brand-mark">?</span> daily<span>brickle</span></a>
     <nav aria-label="Main navigation">
-        <a href="index.php" aria-label="Brickle of the Day"<?= !$isAdminPage && !$isYesterdaysPage ? ' aria-current="page"' : '' ?>><span class="nav-label-long">Brickle of the Day</span><span class="nav-label-short">Today</span></a>
+        <a href="index.php"<?= $isLandingPage ? ' aria-current="page"' : '' ?>><span class="nav-label-long">What is Brickle?</span><span class="nav-label-short">About</span></a>
+        <a href="index.php?page=today" aria-label="Today's Brickle"<?= $isTodayPage ? ' aria-current="page"' : '' ?>><span class="nav-label-long">Today's Brickle</span><span class="nav-label-short">Today</span></a>
         <a href="index.php?page=yesterdays"<?= $isYesterdaysPage ? ' aria-current="page"' : '' ?>><span class="nav-label-long">Brickles of the Yesterdays</span><span class="nav-label-short">Yesterdays</span></a>
         <?php if ($currentUser): ?>
             <a href="index.php?page=profile&amp;id=<?= (int) $currentUser['id'] ?>"<?= $isProfilePage && $profileUser && (int) $profileUser['id'] === (int) $currentUser['id'] ? ' aria-current="page"' : '' ?>><?= e($currentUser['username']) ?></a>
@@ -805,7 +815,35 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
         </div>
     <?php endif; ?>
 
-    <?php if ($isAccountPage && !$currentUser): ?>
+    <?php if ($isLandingPage): ?>
+        <section class="landing-hero">
+            <p class="eyebrow"><span class="live-dot"></span> A DAILY QUESTION FOR YOUR PEOPLE</p>
+            <h1>One small question.<br><span>A lot to talk about.</span></h1>
+            <p class="landing-copy">Brickle gives your friends one question to answer each day. Share your take, see what everyone else thinks, and keep the conversation going.</p>
+            <div class="landing-actions">
+                <a class="button button-primary" href="index.php?page=today">See today's question <span aria-hidden="true">→</span></a>
+                <a class="landing-secondary-link" href="index.php?page=today#answers">Read the answers <span aria-hidden="true">↓</span></a>
+            </div>
+            <div class="landing-details">
+                <article class="landing-detail panel">
+                    <span class="landing-detail-mark" aria-hidden="true">01</span>
+                    <h2>A fresh prompt</h2>
+                    <p>A new daily question gives everyone an easy reason to join in.</p>
+                </article>
+                <article class="landing-detail panel">
+                    <span class="landing-detail-mark" aria-hidden="true">02</span>
+                    <h2>Everyone's answers</h2>
+                    <p>See the group's replies together and discover what your friends think.</p>
+                </article>
+                <article class="landing-detail panel">
+                    <span class="landing-detail-mark" aria-hidden="true">03</span>
+                    <h2>Your way to answer</h2>
+                    <p>Join in anonymously, choose an alias, or sign in with your profile.</p>
+                </article>
+            </div>
+            <div class="landing-decoration" aria-hidden="true"><span>?</span><i></i><b></b></div>
+        </section>
+    <?php elseif ($isAccountPage && !$currentUser): ?>
         <?php $accountMode = ($_GET['mode'] ?? 'login') === 'register' ? 'register' : 'login'; ?>
         <section class="login-panel panel account-panel">
             <p class="eyebrow"><?= $accountMode === 'register' ? 'JOIN THE COMMUNITY' : 'WELCOME BACK' ?></p>
@@ -1205,7 +1243,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
                     <h2>Add your answer</h2>
                     <p class="muted">Your answer will be visible to everyone<?= $currentUser ? ' and linked to your profile' : '' ?>. Please keep the witness protection details out of it.</p>
                 </div>
-                <form class="stack-form" method="post" action="index.php#answer">
+                <form class="stack-form" method="post" action="index.php?page=today#answer">
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="submit_answer">
                     <input type="hidden" name="question_id" value="<?= (int) $todayQuestion['id'] ?>">
@@ -1231,7 +1269,7 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
 <footer class="site-footer">
     <span>Made for good conversations and suspiciously specific opinions.</span>
     <span>
-        <?php if (!$isAdminPage && !$isYesterdaysPage && !$isAccountPage && !$isProfilePage): ?>
+        <?php if ($isTodayPage): ?>
             One <details class="footer-easter-egg">
                 <summary aria-label="Reveal a tiny Brickle surprise">brickle</summary>
                 <span class="footer-easter-egg-popover">
