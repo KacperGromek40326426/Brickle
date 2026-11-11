@@ -753,6 +753,11 @@ if ($isAdminPage && is_admin()) {
 
 $notice = take_flash();
 $adminEmail = $_SESSION['admin_email'] ?? '';
+$nextBrickleTimestamp = (new DateTimeImmutable('tomorrow'))->getTimestamp();
+$countdownSeconds = max(0, $nextBrickleTimestamp - time());
+$countdownHours = intdiv($countdownSeconds, 3600);
+$countdownMinutes = intdiv($countdownSeconds % 3600, 60);
+$countdownRemainder = $countdownSeconds % 60;
 ?><!doctype html>
 <html lang="en">
 <head>
@@ -778,7 +783,13 @@ $adminEmail = $_SESSION['admin_email'] ?? '';
 </head>
 <body>
 <header class="site-header">
-    <a class="brand" href="index.php"><span class="brand-mark">?</span> daily<span>brickle</span></a>
+    <div class="brand-cluster">
+        <a class="brand" href="index.php"><span class="brand-mark">?</span> daily<span>brickle</span></a>
+        <div class="brickle-countdown" data-brickle-countdown data-target="<?= $nextBrickleTimestamp ?>" aria-label="Time until the next daily Brickle">
+            <span class="brickle-countdown-label">Next brickle</span>
+            <span class="brickle-countdown-time" data-countdown-time role="timer" aria-label="Countdown to the next daily Brickle"><?= sprintf('%02d:%02d:%02d', $countdownHours, $countdownMinutes, $countdownRemainder) ?></span>
+        </div>
+    </div>
     <nav aria-label="Main navigation">
         <a href="index.php"<?= $isLandingPage ? ' aria-current="page"' : '' ?>><span class="nav-label-long">What is Brickle?</span><span class="nav-label-short">About</span></a>
         <a href="index.php?page=today" aria-label="Today's Brickle"<?= $isTodayPage ? ' aria-current="page"' : '' ?>><span class="nav-label-long">Today's Brickle</span><span class="nav-label-short">Today</span></a>

@@ -46,6 +46,30 @@ function initializeCarousel(carousel) {
 
 document.querySelectorAll('[data-carousel]').forEach(initializeCarousel);
 
+const brickleCountdown = document.querySelector('[data-brickle-countdown]');
+const brickleCountdownTime = brickleCountdown?.querySelector('[data-countdown-time]');
+const nextBrickleTimestamp = Number(brickleCountdown?.dataset.target);
+if (brickleCountdownTime && Number.isFinite(nextBrickleTimestamp)) {
+    const updateBrickleCountdown = () => {
+        const remaining = Math.max(0, nextBrickleTimestamp - Math.floor(Date.now() / 1000));
+        const hours = Math.floor(remaining / 3600);
+        const minutes = Math.floor((remaining % 3600) / 60);
+        const seconds = remaining % 60;
+        brickleCountdownTime.textContent = [hours, minutes, seconds]
+            .map((value) => String(value).padStart(2, '0'))
+            .join(':');
+
+        if (remaining === 0) {
+            window.location.reload();
+            return;
+        }
+
+        window.setTimeout(updateBrickleCountdown, 1000 - (Date.now() % 1000));
+    };
+
+    updateBrickleCountdown();
+}
+
 const editor = document.querySelector('[data-question-editor]');
 if (editor) {
     const prompt = editor.querySelector('[data-question-prompt]');
